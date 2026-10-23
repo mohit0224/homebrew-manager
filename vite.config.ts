@@ -17,7 +17,31 @@ export default defineConfig(() => ({
         main: path.resolve("index.html"),
         splash: path.resolve("splash.html"),
       },
+      output: {
+        manualChunks(id: any) {
+          if (typeof id === "string" && id.includes("node_modules")) {
+            if (
+              id.includes("react") ||
+              id.includes("react-dom") ||
+              id.includes("react-router-dom")
+            ) {
+              return "vendor-react";
+            }
+            if (id.includes("framer-motion")) {
+              return "vendor-motion";
+            }
+            if (id.includes("lucide-react")) {
+              return "vendor-lucide";
+            }
+            if (id.includes("@tauri-apps")) {
+              return "vendor-tauri";
+            }
+            return "vendor";
+          }
+        },
+      },
     },
+    chunkSizeWarningLimit: 800,
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

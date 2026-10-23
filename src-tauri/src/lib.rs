@@ -8,11 +8,7 @@ use brew::{
     BrewServiceItem, BrewSystemInfo, CommandOutput, OutdatedItem, SearchResultItem,
 };
 use metrics::{MetricsState, SystemMetrics};
-use tauri::{
-    // menu::{Menu, MenuItem},
-    // tray::TrayIconBuilder,
-    Manager, State, WindowEvent,
-};
+use tauri::{Manager, State, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
 
 #[tauri::command]
@@ -135,43 +131,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            // Build Status Bar Menu
-            // let quit_i = MenuItem::with_id(app, "quit", "Quit HomeBrew Manager", true, None::<&str>)?;
-            // let show_i = MenuItem::with_id(app, "show", "Open Dashboard", true, None::<&str>)?;
-            // let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
-
-            // Setup Tray Icon in macOS Status Bar
-            // let _tray = TrayIconBuilder::new()
-            //     .icon(app.default_window_icon().unwrap().clone())
-            //     .menu(&menu)
-            //     .show_menu_on_left_click(false)
-            //     .on_menu_event(|app, event| match event.id.as_ref() {
-            //         "quit" => {
-            //             std::process::exit(0);
-            //         }
-            //         "show" => {
-            //             if let Some(window) = app.get_webview_window("main") {
-            //                 let _ = window.show();
-            //                 let _ = window.set_focus();
-            //             }
-            //         }
-            //         _ => {}
-            //     })
-            //     .on_tray_icon_event(|tray, event| {
-            //         if let tauri::tray::TrayIconEvent::Click { .. } = event {
-            //             let app = tray.app_handle();
-            //             if let Some(window) = app.get_webview_window("main") {
-            //                 if window.is_visible().unwrap_or(false) {
-            //                     let _ = window.hide();
-            //                 } else {
-            //                     let _ = window.show();
-            //                     let _ = window.set_focus();
-            //                 }
-            //             }
-            //         }
-            //     })
-            //     .build(app)?;
-
             // Safety timeout: ensure main window is visible even if frontend initialization hangs
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
