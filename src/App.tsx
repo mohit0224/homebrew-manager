@@ -27,6 +27,7 @@ export function App() {
 
 	const {
 		services,
+		installedPackages,
 		systemMetrics,
 		brewInfo,
 		selectedService,
@@ -196,6 +197,8 @@ export function App() {
 										>
 											<UpgradesView
 												outdated={outdated}
+												installedPackages={installedPackages}
+												services={services}
 												isLoading={isOutdatedLoading}
 												runningActions={runningActions}
 												onRefresh={() => refreshOutdated(true)}

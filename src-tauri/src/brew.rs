@@ -34,6 +34,14 @@ pub struct OutdatedItem {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledPackageItem {
+    pub name: String,
+    #[serde(alias = "installed_versions")]
+    pub installed_versions: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommandOutput {
     pub success: bool,
     pub stdout: String,
@@ -354,6 +362,35 @@ pub fn uninstall_package(name: &str) -> Result<CommandOutput, String> {
     })
 }
 
+pub fn get_all_installed_packages() -> Result<Vec<InstalledPackageItem>, String> {
+    let brew = find_brew_binary();
+    let output = Command::new(&brew)
+        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+        .args(["list", "--versions"])
+        .output()
+        .map_err(|e| format!("Failed to list installed packages: {}", e))?;
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let mut results = Vec::new();
+
+    for line in stdout_str.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("==>") || trimmed.starts_with("✘") {
+            continue;
+        }
+        let mut parts = trimmed.split_whitespace();
+        if let Some(name) = parts.next() {
+            let installed_versions: Vec<String> = parts.map(|s| s.to_string()).collect();
+            results.push(InstalledPackageItem {
+                name: name.to_string(),
+                installed_versions,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
 pub fn get_outdated_packages() -> Result<Vec<OutdatedItem>, String> {
     let brew = find_brew_binary();
     let output = Command::new(&brew)
@@ -375,6 +412,27 @@ pub fn get_outdated_packages() -> Result<Vec<OutdatedItem>, String> {
                             installed_versions.push(s.to_string());
                         }
                     }
+                }
+                results.push(OutdatedItem {
+                    name,
+                    installed_versions,
+                    current_version,
+                });
+            }
+        }
+        if let Some(casks) = parsed["casks"].as_array() {
+            for c in casks {
+                let name = c["name"].as_str().unwrap_or("").to_string();
+                let current_version = c["current_version"].as_str().unwrap_or("").to_string();
+                let mut installed_versions = Vec::new();
+                if let Some(inst) = c["installed_versions"].as_array() {
+                    for v in inst {
+                        if let Some(s) = v.as_str() {
+                            installed_versions.push(s.to_string());
+                        }
+                    }
+                } else if let Some(s) = c["installed_versions"].as_str() {
+                    installed_versions.push(s.to_string());
                 }
                 results.push(OutdatedItem {
                     name,

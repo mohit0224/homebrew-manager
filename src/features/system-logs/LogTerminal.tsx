@@ -9,7 +9,7 @@ interface LogTerminalProps {
 
 export const LogTerminal: React.FC<LogTerminalProps> = ({ logs }) => {
 	return (
-		<div className="max-w-4xl mx-auto flex flex-col gap-4 w-full">
+		<div className="flex flex-col gap-4">
 			{/* Top Header */}
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-2.5">

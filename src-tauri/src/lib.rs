@@ -5,8 +5,8 @@ pub mod metrics;
 use bootstrap::BootstrapState;
 use brew::{
     install_package, manage_service, search_packages, send_notification, uninstall_package,
-    upgrade_package, BrewServiceItem, BrewSystemInfo, CommandOutput, OutdatedItem,
-    SearchResultItem,
+    upgrade_package, BrewServiceItem, BrewSystemInfo, CommandOutput, InstalledPackageItem,
+    OutdatedItem, SearchResultItem,
 };
 use metrics::{MetricsState, SystemMetrics};
 use tauri::{Manager, State, WindowEvent};
@@ -41,8 +41,17 @@ fn search_brew_packages(query: String) -> Result<Vec<SearchResultItem>, String> 
 }
 
 #[tauri::command]
-fn install_brew_package(name: String) -> Result<CommandOutput, String> {
-    install_package(&name)
+fn install_brew_package(
+    name: String,
+    bootstrap: State<BootstrapState>,
+) -> Result<CommandOutput, String> {
+    let res = install_package(&name)?;
+    let b = bootstrap.inner().clone();
+    std::thread::spawn(move || {
+        let _ = b.get_installed_packages(true);
+        let _ = b.get_outdated(true);
+    });
+    Ok(res)
 }
 
 #[tauri::command]
@@ -53,9 +62,18 @@ fn uninstall_brew_package(
     let res = uninstall_package(&name)?;
     let b = bootstrap.inner().clone();
     std::thread::spawn(move || {
+        let _ = b.get_installed_packages(true);
         let _ = b.get_outdated(true);
     });
     Ok(res)
+}
+
+#[tauri::command]
+fn get_installed_packages(
+    force_refresh: Option<bool>,
+    bootstrap: State<BootstrapState>,
+) -> Result<Vec<InstalledPackageItem>, String> {
+    bootstrap.get_installed_packages(force_refresh.unwrap_or(false))
 }
 
 #[tauri::command]
@@ -74,6 +92,7 @@ fn upgrade_brew_package(
     let res = upgrade_package(name.as_deref())?;
     let b = bootstrap.inner().clone();
     std::thread::spawn(move || {
+        let _ = b.get_installed_packages(true);
         let _ = b.get_outdated(true);
     });
     Ok(res)
@@ -180,6 +199,7 @@ pub fn run() {
             search_brew_packages,
             install_brew_package,
             uninstall_brew_package,
+            get_installed_packages,
             get_outdated,
             upgrade_brew_package,
             get_system_metrics,

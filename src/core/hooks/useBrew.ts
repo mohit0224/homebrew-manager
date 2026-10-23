@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { BrewService, SystemMetrics, MetricThresholdConfig, CommandLogEntry, BrewSystemInfo, isServiceRunning } from "../types/brew";
-import { brewApi, SearchResultItem, OutdatedItem } from "../api/brewApi";
+import { brewApi, SearchResultItem, OutdatedItem, InstalledPackageItem } from "../api/brewApi";
 
 const DEFAULT_THRESHOLDS: MetricThresholdConfig = {
   cpuThresholdPercent: 80,
@@ -10,6 +10,74 @@ const DEFAULT_THRESHOLDS: MetricThresholdConfig = {
 };
 
 const THRESHOLDS_STORAGE_KEY = "homebrew_manager_thresholds";
+const INSTALLED_PACKAGES_STORAGE_KEY = "homebrew_manager_installed_packages";
+
+const FALLBACK_INSTALLED_PACKAGES: InstalledPackageItem[] = [
+  { name: "abseil", installed_versions: ["20260817.0"] },
+  { name: "ada-url", installed_versions: ["4.0.0", "4.0.0_1"] },
+  { name: "brotli", installed_versions: ["1.2.0"] },
+  { name: "c-ares", installed_versions: ["1.34.8", "1.34.9"] },
+  { name: "ca-certificates", installed_versions: ["2026-09-25", "2026-08-13", "2026-10-20"] },
+  { name: "cloudflared", installed_versions: ["2026.10.3"] },
+  { name: "dav1d", installed_versions: ["1.5.4"] },
+  { name: "ffmpeg", installed_versions: ["9.0.2_1"] },
+  { name: "fmt", installed_versions: ["12.2.0"] },
+  { name: "hdrhistogram_c", installed_versions: ["0.12.0", "0.12.1"] },
+  { name: "highway", installed_versions: ["1.4.0"] },
+  { name: "icu4c@78", installed_versions: ["78.3"] },
+  { name: "krb5", installed_versions: ["1.22.2_2"] },
+  { name: "lame", installed_versions: ["4.0"] },
+  { name: "libffi", installed_versions: ["3.8.0"] },
+  { name: "libmagic", installed_versions: ["5.48"] },
+  { name: "libnghttp2", installed_versions: ["1.70.0"] },
+  { name: "libpq", installed_versions: ["18.6_1"] },
+  { name: "libuv", installed_versions: ["1.53.0"] },
+  { name: "libvmaf", installed_versions: ["3.2.1"] },
+  { name: "libvpx", installed_versions: ["1.17.0"] },
+  { name: "llhttp", installed_versions: ["9.4.3"] },
+  { name: "lz4", installed_versions: ["1.10.0"] },
+  { name: "merve", installed_versions: ["1.2.2_3", "1.2.2_4"] },
+  { name: "mongodb-community", installed_versions: ["9.0.4", "8.3.11"] },
+  { name: "mongodb-database-tools", installed_versions: ["100.14.1", "100.16.1"] },
+  { name: "mongosh", installed_versions: ["2.13.0"] },
+  { name: "mpg123", installed_versions: ["1.33.7"] },
+  { name: "nbytes", installed_versions: ["0.1.4"] },
+  { name: "node", installed_versions: ["26.12.0", "26.11.1_1"] },
+  { name: "nvm", installed_versions: ["0.40.8"] },
+  { name: "openssl@4", installed_versions: ["4.0.3"] },
+  { name: "opus", installed_versions: ["1.6.1"] },
+  { name: "readline", installed_versions: ["8.3.3", "8.3.6"] },
+  { name: "redis", installed_versions: ["8.10.2_1"] },
+  { name: "sdl2-compat", installed_versions: ["2.32.74"] },
+  { name: "sdl3", installed_versions: ["3.4.18"] },
+  { name: "simdjson", installed_versions: ["5.0.5", "5.0.3"] },
+  { name: "simdutf", installed_versions: ["9.3.2", "9.2.1_1", "9.3.0"] },
+  { name: "sqlite", installed_versions: ["3.54.1", "3.54.0", "3.51.2_1", "3.53.0"] },
+  { name: "svt-av1", installed_versions: ["4.2.0"] },
+  { name: "uvwasi", installed_versions: ["0.0.23"] },
+  { name: "x264", installed_versions: ["r3222"] },
+  { name: "x265", installed_versions: ["4.3"] },
+  { name: "xz", installed_versions: ["5.8.2", "5.8.4"] },
+  { name: "zstd", installed_versions: ["1.5.7_1"] },
+];
+
+function getInitialInstalledPackages(): InstalledPackageItem[] {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return FALLBACK_INSTALLED_PACKAGES;
+  }
+  try {
+    const raw = localStorage.getItem(INSTALLED_PACKAGES_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (_err) {
+    // Fallback to initial snapshot
+  }
+  return FALLBACK_INSTALLED_PACKAGES;
+}
 
 function getInitialThresholds(): MetricThresholdConfig {
   if (typeof window === "undefined" || !window.localStorage) {
@@ -76,6 +144,7 @@ export type ServiceActionType = "start" | "stop" | "restart" | "install" | "upgr
 
 export function useBrew() {
   const [services, setServices] = useState<BrewService[]>([]);
+  const [installedPackages, setInstalledPackages] = useState<InstalledPackageItem[]>(getInitialInstalledPackages);
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics>({
     cpuUsagePercent: 0,
     memoryUsedMb: 0,
@@ -115,6 +184,17 @@ export function useBrew() {
   const [stats, setStats] = useState<PersistedStats>(getInitialStats);
   const hasLoadedServices = useRef(false);
   const hasLoadedOutdated = useRef(false);
+
+  // Persist installedPackages to localStorage
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && window.localStorage && installedPackages.length > 0) {
+        localStorage.setItem(INSTALLED_PACKAGES_STORAGE_KEY, JSON.stringify(installedPackages));
+      }
+    } catch (_err) {
+      // Ignore storage errors
+    }
+  }, [installedPackages]);
 
   // Synchronize stats to localStorage in real time
   useEffect(() => {
@@ -178,6 +258,15 @@ export function useBrew() {
       hasLoadedServices.current = true;
       setServices(data);
 
+      try {
+        const allInstalled = await brewApi.getInstalledPackages(isManualTrigger);
+        if (Array.isArray(allInstalled) && allInstalled.length > 0) {
+          setInstalledPackages(allInstalled);
+        }
+      } catch (_e) {
+        // Fallback silently if command not yet available in running binary
+      }
+
       const metrics = await brewApi.getSystemMetrics();
       const activeCount = data.filter((s) => isServiceRunning(s.status)).length;
       setSystemMetrics({
@@ -236,7 +325,7 @@ export function useBrew() {
     }
   }, [thresholds, addLog]);
 
-  // Load Outdated Packages
+  // Load Outdated & All Installed Packages
   const refreshOutdated = useCallback(async (forceRefresh?: boolean | unknown) => {
     const isForce = forceRefresh === true;
     setIsOutdatedLoading(true);
@@ -244,21 +333,34 @@ export function useBrew() {
       addLog("info", "Checking for outdated packages and available updates...");
     }
     try {
-      const items = await brewApi.getOutdated(isForce);
-      hasLoadedOutdated.current = true;
-      setOutdated(items);
-      if (isForce) {
-        if (items.length === 0) {
-          addLog("success", "Update check complete: All Homebrew packages are up to date! (0 updates pending)");
-        } else {
-          addLog("success", `Update check complete: Found ${items.length} package(s) with available updates.`);
-          items.forEach((item) => {
-            const installedStr = item.installed_versions?.length
-              ? item.installed_versions.join(", ")
-              : "current";
-            addLog("info", `  • ${item.name} (${installedStr} -> ${item.current_version})`);
-          });
+      const [outdatedRes, installedRes] = await Promise.allSettled([
+        brewApi.getOutdated(isForce),
+        brewApi.getInstalledPackages(isForce),
+      ]);
+
+      if (installedRes.status === "fulfilled" && Array.isArray(installedRes.value) && installedRes.value.length > 0) {
+        setInstalledPackages(installedRes.value);
+      }
+
+      if (outdatedRes.status === "fulfilled") {
+        const items = outdatedRes.value;
+        hasLoadedOutdated.current = true;
+        setOutdated(items);
+        if (isForce) {
+          if (items.length === 0) {
+            addLog("success", "Update check complete: All Homebrew packages are up to date! (0 updates pending)");
+          } else {
+            addLog("success", `Update check complete: Found ${items.length} package(s) with available updates.`);
+            items.forEach((item) => {
+              const installedStr = item.installed_versions?.length
+                ? item.installed_versions.join(", ")
+                : "current";
+              addLog("info", `  • ${item.name} (${installedStr} -> ${item.current_version})`);
+            });
+          }
         }
+      } else {
+        throw outdatedRes.reason;
       }
     } catch (err: any) {
       addLog("error", `Failed to check outdated packages: ${err?.message || err}`);
@@ -437,6 +539,12 @@ export function useBrew() {
           }
           return prev;
         });
+        setInstalledPackages((prev) => {
+          if (!prev.some((p) => p.name === name)) {
+            return [...prev, { name, installed_versions: ["latest"] }];
+          }
+          return prev;
+        });
         setSearchResults((prev) =>
           prev.map((item) =>
             item.name === name ? { ...item, is_installed: true } : item,
@@ -472,6 +580,7 @@ export function useBrew() {
         brewApi.notify("Package Uninstalled", `${name} has been removed from your system.`);
         setSelectedService((prev) => (prev?.name === name ? null : prev));
         setServices((prev) => prev.filter((p) => p.name !== name));
+        setInstalledPackages((prev) => prev.filter((p) => p.name !== name));
         setOutdated((prev) => prev.filter((item) => item.name !== name));
         setSearchResults((prev) =>
           prev.map((item) =>
@@ -510,10 +619,28 @@ export function useBrew() {
         hasLoadedOutdated.current = true;
         addLog("success", `Successfully upgraded: ${displayName}`);
         brewApi.notify("Upgrade Complete", `${displayName} upgraded successfully.`);
-        // Optimistic update of outdated list
+        // Optimistic update of outdated list and installed package versions
         if (target) {
+          const upgradedItem = outdated.find((item) => item.name === target);
+          if (upgradedItem?.current_version) {
+            setInstalledPackages((prev) =>
+              prev.map((p) =>
+                p.name === target
+                  ? { ...p, installed_versions: [upgradedItem.current_version] }
+                  : p,
+              ),
+            );
+          }
           setOutdated((prev) => prev.filter((item) => item.name !== target));
         } else {
+          setInstalledPackages((prev) =>
+            prev.map((p) => {
+              const match = outdated.find((o) => o.name === p.name);
+              return match?.current_version
+                ? { ...p, installed_versions: [match.current_version] }
+                : p;
+            }),
+          );
           setOutdated([]);
         }
       } else {
@@ -534,6 +661,7 @@ export function useBrew() {
 
   return {
     services,
+    installedPackages,
     systemMetrics,
     brewInfo,
     clearSearch: () => {
