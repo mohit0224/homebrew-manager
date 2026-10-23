@@ -23,6 +23,9 @@ mkdir -p "$DMG_STAGING"
 cp -R "src-tauri/target/release/bundle/macos/HomeBrew Manager.app" "$DMG_STAGING/"
 ln -s /Applications "$DMG_STAGING/Applications"
 
+# Ad-hoc sign the app inside staging to pass local signature checks
+codesign --force --deep --sign - "$DMG_STAGING/HomeBrew Manager.app"
+
 # Generate compressed DMG
 hdiutil create -volname "HomeBrew Manager" \
   -srcfolder "$DMG_STAGING" \
