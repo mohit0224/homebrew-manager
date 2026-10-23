@@ -9,6 +9,7 @@ interface InstalledPackagesViewProps {
 	onStart: (name: string) => void;
 	onStop: (name: string) => void;
 	onRestart: (name: string) => void;
+	onUninstall: (name: string) => void;
 	onInspect: (service: BrewService) => void;
 }
 
@@ -19,6 +20,7 @@ export const InstalledPackagesView: React.FC<InstalledPackagesViewProps> = React
 	onStart,
 	onStop,
 	onRestart,
+	onUninstall,
 	onInspect,
 }) => {
 	const filteredServices = useMemo(() => {
@@ -40,10 +42,11 @@ export const InstalledPackagesView: React.FC<InstalledPackagesViewProps> = React
 				onStart={onStart}
 				onStop={onStop}
 				onRestart={onRestart}
+				onUninstall={onUninstall}
 				onInspect={onInspect}
 			/>
 		));
-	}, [filteredServices, runningActions, onStart, onStop, onRestart, onInspect]);
+	}, [filteredServices, runningActions, onStart, onStop, onRestart, onUninstall, onInspect]);
 
 	return (
 		<div className="flex flex-col gap-4">

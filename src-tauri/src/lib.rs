@@ -4,8 +4,9 @@ pub mod metrics;
 
 use bootstrap::BootstrapState;
 use brew::{
-    install_package, manage_service, search_packages, send_notification, upgrade_package,
-    BrewServiceItem, BrewSystemInfo, CommandOutput, OutdatedItem, SearchResultItem,
+    install_package, manage_service, search_packages, send_notification, uninstall_package,
+    upgrade_package, BrewServiceItem, BrewSystemInfo, CommandOutput, OutdatedItem,
+    SearchResultItem,
 };
 use metrics::{MetricsState, SystemMetrics};
 use tauri::{Manager, State, WindowEvent};
@@ -42,6 +43,19 @@ fn search_brew_packages(query: String) -> Result<Vec<SearchResultItem>, String> 
 #[tauri::command]
 fn install_brew_package(name: String) -> Result<CommandOutput, String> {
     install_package(&name)
+}
+
+#[tauri::command]
+fn uninstall_brew_package(
+    name: String,
+    bootstrap: State<BootstrapState>,
+) -> Result<CommandOutput, String> {
+    let res = uninstall_package(&name)?;
+    let b = bootstrap.inner().clone();
+    std::thread::spawn(move || {
+        let _ = b.get_outdated(true);
+    });
+    Ok(res)
 }
 
 #[tauri::command]
@@ -165,6 +179,7 @@ pub fn run() {
             restart_service,
             search_brew_packages,
             install_brew_package,
+            uninstall_brew_package,
             get_outdated,
             upgrade_brew_package,
             get_system_metrics,

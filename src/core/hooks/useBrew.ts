@@ -72,7 +72,7 @@ function getInitialStats(): PersistedStats {
   return { installedPackages: 0, availableUpdates: 0, activeOperations: 0 };
 }
 
-export type ServiceActionType = "start" | "stop" | "restart" | "install" | "upgrade";
+export type ServiceActionType = "start" | "stop" | "restart" | "install" | "upgrade" | "uninstall";
 
 export function useBrew() {
   const [services, setServices] = useState<BrewService[]>([]);
@@ -437,12 +437,54 @@ export function useBrew() {
           }
           return prev;
         });
+        setSearchResults((prev) =>
+          prev.map((item) =>
+            item.name === name ? { ...item, is_installed: true } : item,
+          ),
+        );
       } else {
         addLog("stderr", `Install error for ${name}: ${res.stderr || res.stdout}`);
       }
       await refreshServices();
     } catch (err: any) {
       addLog("error", `Failed to install ${name}: ${err?.message || err}`);
+    } finally {
+      setRunningActions((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    }
+  };
+
+  // Uninstall Package
+  const handleUninstall = async (name: string) => {
+    setRunningActions((prev) => ({ ...prev, [name]: "uninstall" }));
+    addLog("info", `Uninstalling package: ${name}... (this may take a moment)`);
+    try {
+      const res = await brewApi.uninstallPackage(name);
+      if (res.stdout && res.stdout.trim().length > 0) {
+        addLog("stdout", res.stdout.trim());
+      }
+      if (res.success) {
+        hasLoadedServices.current = true;
+        addLog("success", `Successfully uninstalled: ${name}`);
+        brewApi.notify("Package Uninstalled", `${name} has been removed from your system.`);
+        setSelectedService((prev) => (prev?.name === name ? null : prev));
+        setServices((prev) => prev.filter((p) => p.name !== name));
+        setOutdated((prev) => prev.filter((item) => item.name !== name));
+        setSearchResults((prev) =>
+          prev.map((item) =>
+            item.name === name ? { ...item, is_installed: false } : item,
+          ),
+        );
+      } else {
+        addLog("stderr", `Uninstall error for ${name}: ${res.stderr || res.stdout}`);
+      }
+      await refreshServices();
+      await refreshOutdated(true);
+    } catch (err: any) {
+      addLog("error", `Failed to uninstall ${name}: ${err?.message || err}`);
     } finally {
       setRunningActions((prev) => {
         const next = { ...prev };
@@ -509,6 +551,7 @@ export function useBrew() {
     searchError,
     handleSearch,
     handleInstall,
+    handleUninstall,
     outdated,
     isOutdatedLoading,
     refreshOutdated,

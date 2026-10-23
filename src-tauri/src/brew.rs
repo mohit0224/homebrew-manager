@@ -333,6 +333,27 @@ pub fn install_package(name: &str) -> Result<CommandOutput, String> {
     })
 }
 
+pub fn uninstall_package(name: &str) -> Result<CommandOutput, String> {
+    validate_name(name)?;
+    let brew = find_brew_binary();
+
+    // Stop the service first in case it is currently running
+    let _ = Command::new(&brew)
+        .args(["services", "stop", name])
+        .output();
+
+    let output = Command::new(&brew)
+        .args(["uninstall", name])
+        .output()
+        .map_err(|e| format!("Uninstall failed: {}", e))?;
+
+    Ok(CommandOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
 pub fn get_outdated_packages() -> Result<Vec<OutdatedItem>, String> {
     let brew = find_brew_binary();
     let output = Command::new(&brew)

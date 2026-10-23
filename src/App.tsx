@@ -36,6 +36,7 @@ export function App() {
 		searchError,
 		handleSearch,
 		handleInstall,
+		handleUninstall,
 		outdated,
 		isOutdatedLoading,
 		refreshOutdated,
@@ -154,6 +155,7 @@ export function App() {
 												onStart={handleStart}
 												onStop={handleStop}
 												onRestart={handleRestart}
+												onUninstall={handleUninstall}
 												onInspect={setSelectedService}
 											/>
 										</motion.div>

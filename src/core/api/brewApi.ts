@@ -66,6 +66,14 @@ export const brewApi = {
     return await invoke<CommandOutput>("install_brew_package", { name: val.sanitized });
   },
 
+  async uninstallPackage(name: string): Promise<CommandOutput> {
+    const val = sanitizeAndValidatePackage(name);
+    if (!val.isValid) {
+      throw new Error(val.error);
+    }
+    return await invoke<CommandOutput>("uninstall_brew_package", { name: val.sanitized });
+  },
+
   async getOutdated(forceRefresh: boolean = false): Promise<OutdatedItem[]> {
     return await invoke<OutdatedItem[]>("get_outdated", {
       forceRefresh: forceRefresh === true,
