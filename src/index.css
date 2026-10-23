@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-bg: #F5F6FC;
+  --color-brand-surface: #FFFFFF;
+  --color-brand-sidebar: #F7F7FC;
+  --color-brand-primary: #6250F5;
+  --color-brand-primary-hover: #5240E3;
+  --color-brand-secondary: #8B7CF6;
+  --color-brand-primary-light: #EEF0FF;
+  --color-brand-text: #151827;
+  --color-brand-muted: #68708A;
+  --color-brand-border: #E8EAF3;
+  --color-brand-success: #16A36A;
+  --color-brand-warning: #E99A22;
+  --color-brand-error: #E65050;
+}
+
+/* Premium macOS Range Slider */
+input[type="range"].macos-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+input[type="range"].macos-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16), 0 0 1px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"].macos-slider:not(:disabled)::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 6px rgba(98, 80, 245, 0.3), 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+input[type="range"].macos-slider:disabled {
+  cursor: not-allowed;
+}
+
+input[type="range"].macos-slider:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  box-shadow: none;
+  background: #e2e8f0;
+  border-color: rgba(0, 0, 0, 0.05);
+}
+
+input[type="range"].macos-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+  cursor: pointer;
+}
+
+input[type="range"].macos-slider:disabled::-moz-range-thumb {
+  background: #e2e8f0;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* Homebrew Manager Logo UI States */
+.hm-logo {
+  transition: transform 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
+}
+.hm-logo:hover {
+  transform: translateY(-1px) scale(1.03);
+  filter: brightness(1.05) drop-shadow(0 4px 12px rgba(255, 23, 111, 0.25));
+}
+.hm-logo:active {
+  transform: translateY(1px) scale(0.97);
+  filter: brightness(0.95);
+}
+.hm-logo.disabled {
+  filter: grayscale(100%) opacity(0.5);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hm-logo {
+    transition: none;
+  }
+}
+
+/* Homebrew Manager Common Button Animation States */
+.hm-button {
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), filter 0.15s ease, opacity 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  will-change: transform;
+}
+.hm-button:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.02);
+}
+.hm-button:active:not(:disabled) {
+  transform: translateY(1px) scale(0.96);
+  filter: brightness(0.95);
+}
+.hm-button:disabled {
+  transform: none !important;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hm-button {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+*{
+  scroll-behavior: smooth !important;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent important ;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent !important;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: transparent !important
+}
