@@ -18,7 +18,7 @@ fi
 APP_NAME="HomeBrew Manager"
 APP_TARGET="/Applications/${APP_NAME}.app"
 REPO="mohit0224/homebrew-manager"
-DMG_URL="https://github.com/${REPO}/releases/latest/download/HomeBrew%20Manager.dmg"
+DMG_URL="https://github.com/${REPO}/releases/latest/download/HomeBrew.Manager.dmg"
 
 TMP_DIR="$(mktemp -d)"
 DMG_PATH="${TMP_DIR}/${APP_NAME}.dmg"
@@ -39,11 +39,18 @@ echo -e "${BLUE}==> Mounting DMG...${NC}"
 mkdir -p "$MOUNT_DIR"
 hdiutil attach "$DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
 
-echo -e "${BLUE}==> Installing to /Applications...${NC}"
+APP_SRC=$(find "$MOUNT_DIR" -maxdepth 1 -name "*.app" | head -n 1)
+if [ -z "$APP_SRC" ]; then
+  echo -e "${RED}Error: Could not find .app in the mounted DMG.${NC}"
+  exit 1
+fi
+APP_ACTUAL_NAME="$(basename "$APP_SRC")"
+APP_TARGET="/Applications/${APP_ACTUAL_NAME}"
+
 if [ -d "$APP_TARGET" ]; then
   rm -rf "$APP_TARGET"
 fi
-cp -R "${MOUNT_DIR}/${APP_NAME}.app" /Applications/
+cp -R "$APP_SRC" /Applications/
 
 echo -e "${BLUE}==> Unmounting DMG...${NC}"
 hdiutil detach "$MOUNT_DIR" -quiet
