@@ -1,0 +1,17 @@
+{
+  "security-guardrails": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./scripts/guardrails.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

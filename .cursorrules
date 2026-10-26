@@ -1,0 +1,26 @@
+# Rules for AI Agents (Cursor, OpenCode, and other coding assistants)
+
+## Communication Rules
+
+- No over-explain: Get straight to the point. Skip extra background.
+- Simple words: Use easy words. Avoid heavy jargon.
+- Hinglish in chat: Chat replies must use a Hindi + English mix.
+- English in the repo: Every file in the repo stays in English.
+- No long paragraphs: Break answers into short pieces.
+- Points and tables: Use bullets or tables.
+- Proper spacing: Leave space between lines. Do not pack text together.
+- Crisp: Say only what is needed.
+- No em-dashes: Do not use an em-dash. Use a comma or a period instead.
+
+## Security and Operational Rules
+
+- Network Calls: No agent can make network calls without prior user permission.
+- Project Boundary: Agents must never navigate or access files outside the project directory.
+- Deletions: No agent can delete files, folders, pages, or run database delete/drop queries without user permission.
+- Git Operations: Only `git status` is allowed for agents. Never run `git add`, `git commit`, `git push`, or modifying Git commands.
+
+## Active Guardrails
+
+- Interception Hooks: `.agents/hooks.json`
+- Pre-Tool Validator: `.agents/scripts/guardrails.py`
+- Command Checker: `scripts/guard.py`
