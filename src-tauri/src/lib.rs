@@ -66,9 +66,10 @@ fn search_brew_packages(
 fn install_brew_package(
     app: tauri::AppHandle,
     name: String,
+    is_cask: Option<bool>,
     bootstrap: State<BootstrapState>,
 ) -> Result<CommandOutput, String> {
-    let res = install_package(Some(&app), &name)?;
+    let res = install_package(Some(&app), &name, is_cask)?;
     let b = bootstrap.inner().clone();
     std::thread::spawn(move || {
         let _ = b.get_installed_packages(true);
@@ -81,9 +82,10 @@ fn install_brew_package(
 fn uninstall_brew_package(
     app: tauri::AppHandle,
     name: String,
+    is_cask: Option<bool>,
     bootstrap: State<BootstrapState>,
 ) -> Result<CommandOutput, String> {
-    let res = uninstall_package(Some(&app), &name)?;
+    let res = uninstall_package(Some(&app), &name, is_cask)?;
     let b = bootstrap.inner().clone();
     std::thread::spawn(move || {
         let _ = b.get_installed_packages(true);
@@ -112,9 +114,10 @@ fn get_outdated(
 fn upgrade_brew_package(
     app: tauri::AppHandle,
     name: Option<String>,
+    is_cask: Option<bool>,
     bootstrap: State<BootstrapState>,
 ) -> Result<CommandOutput, String> {
-    let res = upgrade_package(Some(&app), name.as_deref())?;
+    let res = upgrade_package(Some(&app), name.as_deref(), is_cask)?;
     let b = bootstrap.inner().clone();
     std::thread::spawn(move || {
         let _ = b.get_installed_packages(true);

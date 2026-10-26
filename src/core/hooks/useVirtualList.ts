@@ -242,7 +242,7 @@ export function useVirtualizer<TScrollElement extends Element | Window = HTMLEle
 	const [scrollOffset, setScrollOffset] = useState<number>(resolvedInitialOffset);
 	const [viewportSize, setViewportSize] = useState<number>(600);
 	const [isScrolling, setIsScrolling] = useState<boolean>(false);
-	const [, setMeasurementVersion] = useState<number>(0);
+	const [measurementVersion, setMeasurementVersion] = useState<number>(0);
 
 	const scrollOffsetRef = useRef<number>(resolvedInitialOffset);
 	const scrollTimeoutRef = useRef<number | null>(null);
@@ -283,7 +283,7 @@ export function useVirtualizer<TScrollElement extends Element | Window = HTMLEle
 		}
 
 		return items;
-	}, [count, getItemKey, estimateSize, gap, paddingStart, isScrolling]);
+	}, [count, getItemKey, estimateSize, gap, paddingStart, isScrolling, measurementVersion]);
 
 	const totalSize = useMemo(() => {
 		if (measurements.length === 0) {

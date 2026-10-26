@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useCallback, useState } from "react";
 import { InstalledPackageItem, OutdatedItem } from "../../core/api/brewApi";
 import { BrewService } from "../../core/types/brew";
 import { useVirtualizer } from "../../core/hooks/useVirtualList";
@@ -9,6 +9,10 @@ import {
 	ArrowRight,
 	RotateCw,
 	Package,
+	AppWindow,
+	Terminal,
+	Layers,
+	Flame,
 } from "lucide-react";
 import { Button } from "../../core/components/Button";
 
@@ -19,7 +23,7 @@ interface UpgradesViewProps {
 	isLoading: boolean;
 	runningActions?: Record<string, any>;
 	onRefresh: () => void;
-	onUpgrade: (name?: string) => void;
+	onUpgrade: (name?: string, isCask?: boolean) => void;
 }
 
 interface MergedPackageItem {
@@ -27,7 +31,10 @@ interface MergedPackageItem {
 	installedVersions: string[];
 	currentVersion?: string;
 	isOutdated: boolean;
+	packageType: "cask" | "formula";
 }
+
+type UpgradeTab = "all" | "outdated" | "casks" | "formulae";
 
 const ESTIMATED_ROW_HEIGHT = 86;
 const ROW_GAP = 12;
@@ -44,6 +51,7 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 	onUpgrade,
 }) => {
 	const scrollParentRef = useRef<HTMLDivElement | null>(null);
+	const [activeTab, setActiveTab] = useState<UpgradeTab>("outdated");
 
 	useEffect(() => {
 		// Only check if bootstrap data is not already loaded
@@ -69,6 +77,7 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 				name: pkg.name,
 				installedVersions: versions,
 				isOutdated: false,
+				packageType: pkg.packageType === "cask" ? "cask" : "formula",
 			});
 		}
 
@@ -80,6 +89,7 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 					name: svc.name,
 					installedVersions: [],
 					isOutdated: false,
+					packageType: "formula",
 				});
 			}
 		}
@@ -102,6 +112,7 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 					installed.length > 0 ? installed : existing?.installedVersions || [],
 				currentVersion: current,
 				isOutdated: true,
+				packageType: item.packageType === "cask" ? "cask" : existing?.packageType || "formula",
 			});
 		}
 
@@ -114,15 +125,23 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 		});
 	}, [installedPackages, services, outdated]);
 
+	// Filter based on selected tab
+	const displayedList = useMemo(() => {
+		if (activeTab === "outdated") return allPackagesList.filter((p) => p.isOutdated);
+		if (activeTab === "casks") return allPackagesList.filter((p) => p.packageType === "cask");
+		if (activeTab === "formulae") return allPackagesList.filter((p) => p.packageType === "formula");
+		return allPackagesList;
+	}, [allPackagesList, activeTab]);
+
 	const getScrollElement = useCallback(() => scrollParentRef.current, []);
 	const estimateSize = useCallback(() => ESTIMATED_ROW_HEIGHT, []);
 	const getItemKey = useCallback(
-		(index: number) => allPackagesList[index]?.name ?? index,
-		[allPackagesList],
+		(index: number) => displayedList[index]?.name ?? index,
+		[displayedList],
 	);
 
 	const rowVirtualizer = useVirtualizer({
-		count: allPackagesList.length,
+		count: displayedList.length,
 		getScrollElement,
 		estimateSize,
 		overscan: OVERSCAN_COUNT,
@@ -134,6 +153,9 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 	const virtualItems = rowVirtualizer.getVirtualItems();
 	const totalSize = rowVirtualizer.getTotalSize();
 
+	const casksCount = allPackagesList.filter((p) => p.packageType === "cask").length;
+	const formulaeCount = allPackagesList.filter((p) => p.packageType === "formula").length;
+
 	return (
 		<div className="flex flex-col gap-6">
 			{/* Top Header */}
@@ -143,71 +165,142 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 						Software Upgrades
 					</h2>
 					<p className="text-sm text-brand-muted mt-1">
-						Showing all <strong>{allPackagesList.length}</strong> installed
-						Homebrew packages ({outdated.length} update
+						Showing <strong>{allPackagesList.length}</strong> installed
+						packages ({outdated.length} update
 						{outdated.length === 1 ? "" : "s"} available).
 					</p>
 				</div>
 
-				<div className="flex items-center gap-2.5 shrink-0">
+				<div className="flex items-center gap-3">
 					<Button
-						className="bg-white hover:bg-[#F8F9FD] text-brand-muted hover:text-brand-text border border-brand-border font-semibold text-xs px-3.5 py-2.5 rounded-xl shadow-xs gap-2"
-						onClick={() => onRefresh()}
+						className="bg-white hover:bg-slate-50 text-brand-text border border-brand-border font-semibold text-xs px-4 py-2 rounded-xl transition-all shadow-xs gap-2"
+						disabled={isLoading}
 						isLoading={isLoading}
 						loadingText="Checking..."
-						disabled={isUpgradingAll}
-						icon={<RefreshCw size={14} />}
-						spinner={
-							<RefreshCw
-								size={14}
-								className="animate-spin text-brand-primary"
-							/>
-						}
+						onClick={onRefresh}
+						icon={<RefreshCw size={13} />}
+						spinner={<RotateCw size={13} className="animate-spin text-brand-muted" />}
 					>
 						Check Updates
 					</Button>
 
-					{outdated && outdated.length > 0 && (
+					{outdated.length > 0 && (
 						<Button
-							className="bg-brand-primary hover:bg-brand-primary-hover text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-xs gap-2"
-							onClick={() => onUpgrade()}
+							className="bg-brand-primary hover:bg-brand-primary-hover text-white font-semibold text-xs px-5 py-2 rounded-xl shadow-xs gap-2"
+							disabled={isLoading || isUpgradingAll}
 							isLoading={isUpgradingAll}
-							loadingText={`Upgrading All (${outdated.length})...`}
-							disabled={isLoading}
+							loadingText="Upgrading all..."
+							onClick={() => onUpgrade(undefined, false)}
 							icon={<ArrowUpCircle size={14} />}
-							spinner={
-								<RotateCw size={14} className="animate-spin text-white" />
-							}
+							spinner={<RotateCw size={14} className="animate-spin text-white" />}
 						>
-							{`Upgrade All (${outdated.length})`}
+							Upgrade All ({outdated.length})
 						</Button>
 					)}
 				</div>
 			</div>
 
-			{/* Content */}
+			{/* Filter Tabs */}
+			<div className="flex items-center gap-2 flex-wrap">
+				<button
+					type="button"
+					onClick={() => setActiveTab("all")}
+					className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+						activeTab === "all"
+							? "bg-brand-primary text-white shadow-xs"
+							: "bg-white text-brand-muted hover:text-brand-text border border-brand-border"
+					}`}
+				>
+					<Layers size={13} />
+					<span>All Packages</span>
+					<span className={`px-1.5 py-0.2 rounded-md text-[10px] font-bold ${
+						activeTab === "all" ? "bg-white/20 text-white" : "bg-slate-100 text-brand-muted"
+					}`}>
+						{allPackagesList.length}
+					</span>
+				</button>
+
+				<button
+					type="button"
+					onClick={() => setActiveTab("outdated")}
+					className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+						activeTab === "outdated"
+							? "bg-amber-500 text-white shadow-xs"
+							: "bg-white text-brand-muted hover:text-amber-600 border border-brand-border"
+					}`}
+				>
+					<Flame size={13} />
+					<span>Updates Available</span>
+					<span className={`px-1.5 py-0.2 rounded-md text-[10px] font-bold ${
+						activeTab === "outdated" ? "bg-white/20 text-white" : "bg-amber-100 text-amber-700"
+					}`}>
+						{outdated.length}
+					</span>
+				</button>
+
+				<button
+					type="button"
+					onClick={() => setActiveTab("casks")}
+					className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+						activeTab === "casks"
+							? "bg-purple-600 text-white shadow-xs"
+							: "bg-white text-brand-muted hover:text-purple-600 border border-brand-border"
+					}`}
+				>
+					<AppWindow size={13} />
+					<span>Casks</span>
+					<span className={`px-1.5 py-0.2 rounded-md text-[10px] font-bold ${
+						activeTab === "casks" ? "bg-white/20 text-white" : "bg-purple-100 text-purple-700"
+					}`}>
+						{casksCount}
+					</span>
+				</button>
+
+				<button
+					type="button"
+					onClick={() => setActiveTab("formulae")}
+					className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+						activeTab === "formulae"
+							? "bg-blue-600 text-white shadow-xs"
+							: "bg-white text-brand-muted hover:text-blue-600 border border-brand-border"
+					}`}
+				>
+					<Terminal size={13} />
+					<span>Formulae</span>
+					<span className={`px-1.5 py-0.2 rounded-md text-[10px] font-bold ${
+						activeTab === "formulae" ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700"
+					}`}>
+						{formulaeCount}
+					</span>
+				</button>
+			</div>
+
+			{/* Main Content Area */}
 			{isLoading && allPackagesList.length === 0 ? (
 				<div className="bg-white rounded-3xl border border-brand-border p-16 text-center shadow-xs flex flex-col items-center justify-center">
-					<div className="w-14 h-14 rounded-2xl bg-indigo-50 text-brand-primary flex items-center justify-center mb-3.5">
-						<RotateCw size={28} className="animate-spin" />
-					</div>
+					<RotateCw
+						size={28}
+						className="animate-spin text-brand-primary mb-3"
+					/>
 					<h3 className="text-base font-bold text-brand-text">
-						Checking for Updates...
+						Checking for Package Upgrades...
 					</h3>
 					<p className="text-xs text-brand-muted mt-1 max-w-sm">
-						Scanning Homebrew formulae and casks for available updates.
+						Running safe inspect queries against Homebrew formulae and casks.
 					</p>
 				</div>
-			) : allPackagesList.length === 0 ? (
+			) : displayedList.length === 0 ? (
 				<div className="bg-white rounded-3xl border border-brand-border p-16 text-center shadow-xs flex flex-col items-center justify-center">
 					<div className="w-14 h-14 rounded-2xl bg-[#E8F8F0] text-brand-success flex items-center justify-center mb-3.5">
 						<CheckCircle2 size={32} />
 					</div>
 					<h3 className="text-base font-bold text-brand-text">
-						No Installed Packages Found
+						{activeTab === "outdated" ? "All Packages Up to Date!" : "No Packages Found"}
 					</h3>
 					<p className="text-xs text-brand-muted mt-1 max-w-sm">
-						No Homebrew formulae or casks were detected in your environment.
+						{activeTab === "outdated"
+							? "Every installed Homebrew formula and cask is at its latest version."
+							: "No packages matching the selected filter."}
 					</p>
 				</div>
 			) : (
@@ -216,11 +309,11 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 					ref={scrollParentRef}
 					role="region"
 					aria-label="Installed packages list"
-					className="h-[calc(100vh-230px)] min-h-96 overflow-y-auto pr-1 select-none"
+					className="h-[calc(100vh-270px)] min-h-96 overflow-y-auto pr-1 select-none"
 				>
 					<div className="relative w-full" style={{ height: `${totalSize}px` }}>
 						{virtualItems.map((virtualRow) => {
-							const item = allPackagesList[virtualRow.index];
+							const item = displayedList[virtualRow.index];
 							if (!item) return null;
 
 							const installed = item.installedVersions;
@@ -228,6 +321,7 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 							const isItemUpgrading =
 								!!runningActions[item.name] ||
 								(item.isOutdated && isUpgradingAll);
+							const isCask = item.packageType === "cask";
 
 							return (
 								<div
@@ -243,15 +337,36 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 										<div className="flex flex-col min-w-0">
 											<div className="flex items-center gap-2.5 flex-wrap">
 												<span className="font-bold text-base text-brand-text flex items-center gap-2">
-													<Package
-														size={15}
-														className={
-															item.isOutdated
-																? "text-brand-primary shrink-0"
-																: "text-brand-muted shrink-0"
-														}
-													/>
+													{isCask ? (
+														<AppWindow
+															size={16}
+															className={
+																item.isOutdated
+																	? "text-purple-600 shrink-0"
+																	: "text-brand-muted shrink-0"
+															}
+														/>
+													) : (
+														<Package
+															size={16}
+															className={
+																item.isOutdated
+																	? "text-brand-primary shrink-0"
+																	: "text-brand-muted shrink-0"
+															}
+														/>
+													)}
 													<span>{item.name}</span>
+												</span>
+
+												<span
+													className={`px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wider ${
+														isCask
+															? "bg-purple-100 text-purple-700 border border-purple-200"
+															: "bg-blue-100 text-blue-700 border border-blue-200"
+													}`}
+												>
+													{isCask ? "Cask" : "Formula"}
 												</span>
 
 												{item.isOutdated ? (
@@ -293,11 +408,11 @@ export const UpgradesView: React.FC<UpgradesViewProps> = ({
 										{/* Conditionally show Upgrade button only if package has an available update */}
 										{item.isOutdated && (
 											<Button
-												className="bg-brand-primary-light hover:bg-brand-primary text-brand-primary hover:text-white font-semibold text-xs px-4 py-2 rounded-xl shadow-xs gap-2 shrink-0"
+												className="bg-brand-primary-light hover:bg-brand-primary text-brand-primary hover:text-white font-semibold text-xs px-4 py-2 rounded-xl shadow-xs gap-2 shrink-0 cursor-pointer"
 												disabled={isLoading}
 												isLoading={isItemUpgrading}
 												loadingText="Upgrading..."
-												onClick={() => onUpgrade(item.name)}
+												onClick={() => onUpgrade(item.name, isCask)}
 												icon={<ArrowUpCircle size={13} />}
 												spinner={
 													<RotateCw size={13} className="animate-spin" />

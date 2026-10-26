@@ -267,8 +267,15 @@ export function useBrew() {
 
     const activeCount = services.filter((s) => isServiceRunning(s.status)).length;
     const initial = getInitialStats();
+    const countInstalled =
+      installedPackages.length > 0
+        ? installedPackages.length
+        : hasLoadedServices.current || services.length > 0
+          ? services.length
+          : initial.installedPackages;
+
     const nextStats: PersistedStats = {
-      installedPackages: hasLoadedServices.current || services.length > 0 ? services.length : initial.installedPackages,
+      installedPackages: countInstalled,
       availableUpdates: hasLoadedOutdated.current || outdated.length > 0 ? outdated.length : initial.availableUpdates,
       activeOperations: hasLoadedServices.current || services.length > 0 ? activeCount : initial.activeOperations,
     };
@@ -280,7 +287,7 @@ export function useBrew() {
     } catch (err) {
       console.error("Failed to save stats to localStorage", err);
     }
-  }, [services, outdated]);
+  }, [services, outdated, installedPackages]);
 
   const setThresholds = useCallback(
     (action: MetricThresholdConfig | ((prev: MetricThresholdConfig) => MetricThresholdConfig)) => {
@@ -685,18 +692,18 @@ export function useBrew() {
   };
 
   // Install Package
-  const handleInstall = async (name: string) => {
+  const handleInstall = async (name: string, isCask: boolean = false) => {
     setRunningActions((prev) => ({ ...prev, [name]: "install" }));
-    addLog("info", `Installing package: ${name}... (streaming output below)`);
+    addLog("info", `Installing ${isCask ? "cask" : "package"}: ${name}... (streaming output below)`);
     try {
-      const res = await brewApi.installPackage(name);
+      const res = await brewApi.installPackage(name, isCask);
       if (res.success) {
         hasLoadedServices.current = true;
         addLog("success", `Successfully installed: ${name}`);
         brewApi.notify("Package Installed", `${name} is now installed on your system.`);
         // Optimistic update of installed packages
         setServices((prev) => {
-          if (!prev.some((p) => p.name === name)) {
+          if (!isCask && !prev.some((p) => p.name === name)) {
             return [
               ...prev,
               {
@@ -714,13 +721,20 @@ export function useBrew() {
         });
         setInstalledPackages((prev) => {
           if (!prev.some((p) => p.name === name)) {
-            return [...prev, { name, installed_versions: ["latest"] }];
+            return [
+              ...prev,
+              {
+                name,
+                installed_versions: ["latest"],
+                packageType: isCask ? "cask" : "formula",
+              },
+            ];
           }
           return prev;
         });
         setSearchResults((prev) =>
           prev.map((item) =>
-            item.name === name ? { ...item, is_installed: true } : item,
+            item.name === name ? { ...item, is_installed: true, isInstalled: true } : item,
           ),
         );
       } else {
@@ -739,11 +753,11 @@ export function useBrew() {
   };
 
   // Uninstall Package
-  const handleUninstall = async (name: string) => {
+  const handleUninstall = async (name: string, isCask: boolean = false) => {
     setRunningActions((prev) => ({ ...prev, [name]: "uninstall" }));
-    addLog("info", `Uninstalling package: ${name}... (streaming output below)`);
+    addLog("info", `Uninstalling ${isCask ? "cask" : "package"}: ${name}... (streaming output below)`);
     try {
-      const res = await brewApi.uninstallPackage(name);
+      const res = await brewApi.uninstallPackage(name, isCask);
       if (res.success) {
         hasLoadedServices.current = true;
         addLog("success", `Successfully uninstalled: ${name}`);
@@ -754,7 +768,7 @@ export function useBrew() {
         setOutdated((prev) => prev.filter((item) => item.name !== name));
         setSearchResults((prev) =>
           prev.map((item) =>
-            item.name === name ? { ...item, is_installed: false } : item,
+            item.name === name ? { ...item, is_installed: false, isInstalled: false } : item,
           ),
         );
       } else {
@@ -774,14 +788,14 @@ export function useBrew() {
   };
 
   // Upgrade Package
-  const handleUpgrade = async (name?: string) => {
+  const handleUpgrade = async (name?: string, isCask: boolean = false) => {
     const target = typeof name === "string" && name.trim().length > 0 ? name.trim() : null;
     const displayName = target || "all outdated packages";
     const key = target || "all";
     setRunningActions((prev) => ({ ...prev, [key]: "upgrade" }));
     addLog("info", `Starting upgrade for ${displayName}... (streaming output below)`);
     try {
-      const res = await brewApi.upgradePackage(target || undefined);
+      const res = await brewApi.upgradePackage(target || undefined, isCask);
       if (res.success) {
         hasLoadedOutdated.current = true;
         addLog("success", `Successfully upgraded: ${displayName}`);

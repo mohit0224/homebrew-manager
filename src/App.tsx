@@ -78,7 +78,11 @@ export function App() {
 	};
 
 	const displayInstalledCount =
-		services.length > 0 ? services.length : (stats?.installedPackages ?? 0);
+		installedPackages.length > 0
+			? installedPackages.length
+			: services.length > 0
+				? services.length
+				: (stats?.installedPackages ?? 0);
 	const displayActiveCount =
 		services.length > 0
 			? services.filter((s) => isServiceRunning(s.status)).length
@@ -158,12 +162,14 @@ export function App() {
 										>
 											<InstalledPackagesView
 												services={services}
+												installedPackages={installedPackages}
 												filterText={filterText}
 												runningActions={runningActions}
 												onStart={handleStart}
 												onStop={handleStop}
 												onRestart={handleRestart}
 												onUninstall={handleUninstall}
+												onUpgrade={handleUpgrade}
 												onInspect={setSelectedService}
 											/>
 										</motion.div>

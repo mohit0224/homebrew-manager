@@ -26,11 +26,13 @@ pub struct BrewServiceItem {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchResultItem {
     pub name: String,
     pub description: Option<String>,
     pub version: Option<String>,
     pub is_installed: bool,
+    pub package_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,6 +43,7 @@ pub struct OutdatedItem {
     pub installed_versions: Vec<String>,
     #[serde(alias = "current_version")]
     pub current_version: String,
+    pub package_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -49,6 +52,7 @@ pub struct InstalledPackageItem {
     pub name: String,
     #[serde(alias = "installed_versions")]
     pub installed_versions: Vec<String>,
+    pub package_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -323,47 +327,91 @@ pub fn search_packages(
 ) -> Result<Vec<SearchResultItem>, String> {
     validate_search_query(query)?;
     let brew = find_brew_binary();
-    let output = Command::new(&brew)
-        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
-        .args(["search", query])
-        .output()
-        .map_err(|e| format!("Brew search failed: {}", e))?;
+    let q1 = query.to_string();
+    let q2 = query.to_string();
+    let brew1 = brew.clone();
+    let brew2 = brew.clone();
 
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    // 1. Search Casks in parallel thread
+    let cask_handle = std::thread::spawn(move || {
+        Command::new(&brew1)
+            .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+            .args(["search", "--cask", &q1])
+            .output()
+    });
+
+    // 2. Search Formulae in parallel thread
+    let formula_handle = std::thread::spawn(move || {
+        Command::new(&brew2)
+            .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+            .args(["search", "--formula", &q2])
+            .output()
+    });
+
     let mut results = Vec::new();
 
-    for line in stdout_str.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("==>") {
-            continue;
-        }
-
-        for pkg in trimmed.split_whitespace() {
-            if pkg.is_empty() {
+    // Collect Casks first so desktop apps are prioritized and clearly typed
+    if let Ok(Ok(output)) = cask_handle.join() {
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        for line in stdout_str.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("==>") {
                 continue;
             }
-            let pkg_lower = pkg.to_lowercase();
-            let is_installed = if let Some(set) = installed_set {
-                set.contains(&pkg_lower)
-                    || set.iter().any(|inst| {
-                        inst == &pkg_lower
-                            || inst.split('/').last() == Some(&pkg_lower.as_str())
-                            || pkg_lower.split('/').last() == Some(&inst.as_str())
-                    })
-            } else {
-                false
-            };
+            for pkg in trimmed.split_whitespace() {
+                if pkg.is_empty() || pkg == "(deprecated)" || pkg == "(disabled)" {
+                    continue;
+                }
+                let pkg_lower = pkg.to_lowercase();
+                let is_installed = if let Some(set) = installed_set {
+                    set.contains(&pkg_lower)
+                        || (pkg_lower == "docker-desktop" && (set.contains("docker") || set.contains("docker-desktop")))
+                } else {
+                    false
+                };
 
-            results.push(SearchResultItem {
-                name: pkg.to_string(),
-                description: None,
-                version: None,
-                is_installed,
-            });
+                results.push(SearchResultItem {
+                    name: pkg.to_string(),
+                    description: None,
+                    version: None,
+                    is_installed,
+                    package_type: "cask".to_string(),
+                });
+            }
         }
     }
 
-    results.truncate(25);
+    // Collect Formulae
+    if let Ok(Ok(output)) = formula_handle.join() {
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        for line in stdout_str.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("==>") {
+                continue;
+            }
+            for pkg in trimmed.split_whitespace() {
+                if pkg.is_empty() || pkg == "(deprecated)" || pkg == "(disabled)" {
+                    continue;
+                }
+                let pkg_lower = pkg.to_lowercase();
+                let is_installed = if let Some(set) = installed_set {
+                    set.contains(&pkg_lower)
+                } else {
+                    false
+                };
+
+                results.push(SearchResultItem {
+                    name: pkg.to_string(),
+                    description: None,
+                    version: None,
+                    is_installed,
+                    package_type: "formula".to_string(),
+                });
+            }
+        }
+    }
+
+    results.truncate(40);
     Ok(results)
 }
 
@@ -454,12 +502,67 @@ pub fn run_brew_command_streaming(
     })
 }
 
-pub fn install_package(app: Option<&tauri::AppHandle>, name: &str) -> Result<CommandOutput, String> {
-    validate_name(name)?;
-    run_brew_command_streaming(app, "install", name, &["install", name])
+fn detect_applications_casks(results: &mut Vec<InstalledPackageItem>) {
+    let known_casks: &[(&str, &str)] = &[
+        ("docker-desktop", "/Applications/Docker.app"),
+        ("visual-studio-code", "/Applications/Visual Studio Code.app"),
+        ("google-chrome", "/Applications/Google Chrome.app"),
+        ("postman", "/Applications/Postman.app"),
+        ("brave-browser", "/Applications/Brave Browser.app"),
+        ("mongodb-compass", "/Applications/MongoDB Compass.app"),
+        ("telegram", "/Applications/Telegram.app"),
+    ];
+
+    for &(cask_name, app_path) in known_casks {
+        if std::path::Path::new(app_path).exists() {
+            let already_present = results.iter().any(|item| {
+                item.name == cask_name
+                    || (cask_name == "docker-desktop" && (item.name == "docker" || item.name == "docker-desktop"))
+            });
+            if !already_present {
+                let version_plist = format!("{}/Contents/Info.plist", app_path);
+                let version = if let Ok(output) = Command::new("defaults")
+                    .args(["read", &version_plist, "CFBundleShortVersionString"])
+                    .output()
+                {
+                    let v = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !v.is_empty() {
+                        v
+                    } else {
+                        "latest".to_string()
+                    }
+                } else {
+                    "latest".to_string()
+                };
+
+                results.push(InstalledPackageItem {
+                    name: cask_name.to_string(),
+                    installed_versions: vec![version],
+                    package_type: "cask".to_string(),
+                });
+            }
+        }
+    }
 }
 
-pub fn uninstall_package(app: Option<&tauri::AppHandle>, name: &str) -> Result<CommandOutput, String> {
+pub fn install_package(
+    app: Option<&tauri::AppHandle>,
+    name: &str,
+    is_cask: Option<bool>,
+) -> Result<CommandOutput, String> {
+    validate_name(name)?;
+    if is_cask == Some(true) {
+        run_brew_command_streaming(app, "install", name, &["install", "--cask", "--adopt", name])
+    } else {
+        run_brew_command_streaming(app, "install", name, &["install", name])
+    }
+}
+
+pub fn uninstall_package(
+    app: Option<&tauri::AppHandle>,
+    name: &str,
+    is_cask: Option<bool>,
+) -> Result<CommandOutput, String> {
     validate_name(name)?;
     let brew = find_brew_binary();
 
@@ -469,35 +572,69 @@ pub fn uninstall_package(app: Option<&tauri::AppHandle>, name: &str) -> Result<C
         .args(["services", "stop", name])
         .output();
 
-    run_brew_command_streaming(app, "uninstall", name, &["uninstall", name])
+    if is_cask == Some(true) {
+        run_brew_command_streaming(app, "uninstall", name, &["uninstall", "--cask", name])
+    } else {
+        run_brew_command_streaming(app, "uninstall", name, &["uninstall", name])
+    }
 }
 
 pub fn get_all_installed_packages() -> Result<Vec<InstalledPackageItem>, String> {
     let brew = find_brew_binary();
-    let output = Command::new(&brew)
-        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
-        .args(["list", "--versions"])
-        .output()
-        .map_err(|e| format!("Failed to list installed packages: {}", e))?;
-
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
     let mut results = Vec::new();
 
-    for line in stdout_str.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("==>") || trimmed.starts_with("✘") {
-            continue;
-        }
-        let mut parts = trimmed.split_whitespace();
-        if let Some(name) = parts.next() {
-            let installed_versions: Vec<String> = parts.map(|s| s.to_string()).collect();
-            results.push(InstalledPackageItem {
-                name: name.to_string(),
-                installed_versions,
-            });
+    // 1. Fetch Formulae
+    if let Ok(output) = Command::new(&brew)
+        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+        .args(["list", "--formula", "--versions"])
+        .output()
+    {
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        for line in stdout_str.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("==>") || trimmed.starts_with("✘") {
+                continue;
+            }
+            let mut parts = trimmed.split_whitespace();
+            if let Some(name) = parts.next() {
+                let installed_versions: Vec<String> = parts.map(|s| s.to_string()).collect();
+                results.push(InstalledPackageItem {
+                    name: name.to_string(),
+                    installed_versions,
+                    package_type: "formula".to_string(),
+                });
+            }
         }
     }
 
+    // 2. Fetch Casks registered with Homebrew
+    if let Ok(output) = Command::new(&brew)
+        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+        .args(["list", "--cask", "--versions"])
+        .output()
+    {
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        for line in stdout_str.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("==>") || trimmed.starts_with("✘") {
+                continue;
+            }
+            let mut parts = trimmed.split_whitespace();
+            if let Some(name) = parts.next() {
+                let installed_versions: Vec<String> = parts.map(|s| s.to_string()).collect();
+                results.push(InstalledPackageItem {
+                    name: name.to_string(),
+                    installed_versions,
+                    package_type: "cask".to_string(),
+                });
+            }
+        }
+    }
+
+    // 3. Scan system /Applications for common cask apps (like Docker Desktop)
+    detect_applications_casks(&mut results);
+
+    results.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(results)
 }
 
@@ -505,13 +642,14 @@ pub fn get_outdated_packages() -> Result<Vec<OutdatedItem>, String> {
     let brew = find_brew_binary();
     let output = Command::new(&brew)
         .env("HOMEBREW_NO_AUTO_UPDATE", "1")
-        .args(["outdated", "--json=v2"])
+        .args(["outdated", "--json=v2", "--greedy"])
         .output()
         .map_err(|e| format!("Outdated check failed: {}", e))?;
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let mut results = Vec::new();
+
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout_str) {
-        let mut results = Vec::new();
         if let Some(formulae) = parsed["formulae"].as_array() {
             for f in formulae {
                 let name = f["name"].as_str().unwrap_or("").to_string();
@@ -528,6 +666,7 @@ pub fn get_outdated_packages() -> Result<Vec<OutdatedItem>, String> {
                     name,
                     installed_versions,
                     current_version,
+                    package_type: "formula".to_string(),
                 });
             }
         }
@@ -549,19 +688,85 @@ pub fn get_outdated_packages() -> Result<Vec<OutdatedItem>, String> {
                     name,
                     installed_versions,
                     current_version,
+                    package_type: "cask".to_string(),
                 });
             }
         }
-        return Ok(results);
     }
 
-    Ok(Vec::new())
+    // Check if Docker Desktop in /Applications has an available cask upgrade
+    let docker_path = "/Applications/Docker.app";
+    let has_docker_outdated = results.iter().any(|item| {
+        item.name == "docker-desktop" || item.name == "docker"
+    });
+    if !has_docker_outdated && std::path::Path::new(docker_path).exists() {
+        let version_plist = format!("{}/Contents/Info.plist", docker_path);
+        if let Ok(output) = Command::new("defaults")
+            .args(["read", &version_plist, "CFBundleShortVersionString"])
+            .output()
+        {
+            let installed_v = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !installed_v.is_empty() {
+                // Check latest version from brew info --cask docker-desktop --json=v2
+                if let Ok(info_out) = Command::new(&brew)
+                    .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+                    .args(["info", "--cask", "docker-desktop", "--json=v2"])
+                    .output()
+                {
+                    let info_str = String::from_utf8_lossy(&info_out.stdout);
+                    if let Ok(info_json) = serde_json::from_str::<serde_json::Value>(&info_str) {
+                        if let Some(latest_v) = info_json["casks"][0]["version"].as_str() {
+                            let clean_latest = latest_v.split(',').next().unwrap_or(latest_v);
+                            if clean_latest != installed_v {
+                                results.push(OutdatedItem {
+                                    name: "docker-desktop".to_string(),
+                                    installed_versions: vec![installed_v],
+                                    current_version: clean_latest.to_string(),
+                                    package_type: "cask".to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(results)
 }
 
-pub fn upgrade_package(app: Option<&tauri::AppHandle>, name: Option<&str>) -> Result<CommandOutput, String> {
+pub fn upgrade_package(
+    app: Option<&tauri::AppHandle>,
+    name: Option<&str>,
+    is_cask: Option<bool>,
+) -> Result<CommandOutput, String> {
     if let Some(pkg) = name {
         validate_name(pkg)?;
-        run_brew_command_streaming(app, "upgrade", pkg, &["upgrade", pkg])
+        let brew = find_brew_binary();
+        let target_is_cask = if is_cask.is_some() {
+            is_cask.unwrap()
+        } else {
+            pkg == "docker-desktop" || {
+                let check = Command::new(&brew)
+                    .args(["list", "--cask", pkg])
+                    .output();
+                check.map(|o| o.status.success()).unwrap_or(false)
+            }
+        };
+
+        if target_is_cask {
+            let check = Command::new(&brew)
+                .args(["list", "--cask", pkg])
+                .output();
+            let is_in_caskroom = check.map(|o| o.status.success()).unwrap_or(false);
+            if is_in_caskroom {
+                run_brew_command_streaming(app, "upgrade", pkg, &["upgrade", "--cask", pkg])
+            } else {
+                run_brew_command_streaming(app, "upgrade", pkg, &["install", "--cask", "--adopt", pkg])
+            }
+        } else {
+            run_brew_command_streaming(app, "upgrade", pkg, &["upgrade", pkg])
+        }
     } else {
         run_brew_command_streaming(app, "upgrade", "all", &["upgrade"])
     }
