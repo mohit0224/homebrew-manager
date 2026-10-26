@@ -51,6 +51,7 @@ export const InstalledPackagesView: React.FC<InstalledPackagesViewProps> = React
 	onInspect,
 }) => {
 	const scrollParentRef = useRef<HTMLDivElement | null>(null);
+	const [openMenuName, setOpenMenuName] = useState<string | null>(null);
 
 	// Default to Background Services tab
 	const [activeTab, setActiveTab] = useState<FilterTab>("services");
@@ -142,6 +143,7 @@ export const InstalledPackagesView: React.FC<InstalledPackagesViewProps> = React
 		gap: ROW_GAP,
 		getItemKey,
 		snapshotKey: PACKAGES_SNAPSHOT_KEY,
+		paddingEnd: 140,
 	});
 
 	const virtualItems = rowVirtualizer.getVirtualItems();
@@ -231,6 +233,7 @@ export const InstalledPackagesView: React.FC<InstalledPackagesViewProps> = React
 									className="absolute top-0 left-0 w-full"
 									style={{
 										transform: `translateY(${virtualRow.start}px)`,
+										zIndex: openMenuName === item.name ? 50 : filteredItems.length - virtualRow.index,
 									}}
 								>
 									{item.service ? (
@@ -247,6 +250,7 @@ export const InstalledPackagesView: React.FC<InstalledPackagesViewProps> = React
 											onRestart={onRestart}
 											onUninstall={(name) => onUninstall(name, false)}
 											onInspect={onInspect}
+											onMenuToggle={(isOpen) => setOpenMenuName(isOpen ? item.name : null)}
 										/>
 									) : (
 										<div className="bg-white rounded-2xl border border-brand-border p-5 shadow-xs hover:shadow-md transition-shadow flex items-center justify-between gap-4">

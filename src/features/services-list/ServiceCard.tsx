@@ -22,6 +22,7 @@ interface ServiceCardProps {
 	onRestart: (name: string) => void;
 	onUninstall: (name: string) => void;
 	onInspect: (service: BrewService) => void;
+	onMenuToggle?: (isOpen: boolean) => void;
 }
 
 function areServiceCardPropsEqual(
@@ -35,6 +36,7 @@ function areServiceCardPropsEqual(
 	if (prev.onRestart !== next.onRestart) return false;
 	if (prev.onUninstall !== next.onUninstall) return false;
 	if (prev.onInspect !== next.onInspect) return false;
+	if (prev.onMenuToggle !== next.onMenuToggle) return false;
 
 	const p = prev.service;
 	const n = next.service;
@@ -60,6 +62,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 		onRestart,
 		onUninstall,
 		onInspect,
+		onMenuToggle,
 	}) => {
 		const [isMenuOpen, setIsMenuOpen] = useState(false);
 		const menuRef = useRef<HTMLDivElement>(null);
@@ -74,6 +77,19 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 
 		const showRunningControls = isStopping || (isRunning && !isStarting);
 
+		const handleToggleMenu = () => {
+			setIsMenuOpen((prev) => {
+				const next = !prev;
+				onMenuToggle?.(next);
+				return next;
+			});
+		};
+
+		const handleCloseMenu = () => {
+			setIsMenuOpen(false);
+			onMenuToggle?.(false);
+		};
+
 		useEffect(() => {
 			if (!isMenuOpen) return;
 
@@ -82,13 +98,13 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 					menuRef.current &&
 					!menuRef.current.contains(event.target as Node)
 				) {
-					setIsMenuOpen(false);
+					handleCloseMenu();
 				}
 			};
 
 			const handleKeyDown = (event: KeyboardEvent) => {
 				if (event.key === "Escape") {
-					setIsMenuOpen(false);
+					handleCloseMenu();
 				}
 			};
 
@@ -249,7 +265,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 									: "bg-white hover:bg-[#F8F9FD] text-brand-muted hover:text-brand-text border-brand-border"
 							}`}
 							disabled={isLoading}
-							onClick={() => setIsMenuOpen((prev) => !prev)}
+							onClick={handleToggleMenu}
 							icon={<MoreHorizontal size={15} />}
 							title="More Options"
 						/>
@@ -261,7 +277,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 									animate={{ opacity: 1, scale: 1, y: 0 }}
 									exit={{ opacity: 0, scale: 0.95, y: 4 }}
 									transition={{ duration: 0.12 }}
-									className="absolute right-0 top-full mt-2 w-44 bg-white rounded-2xl border border-brand-border shadow-xl p-1.5 z-30 flex flex-col gap-0.5"
+									className="absolute right-0 top-full mt-2 w-44 bg-white rounded-2xl border border-brand-border shadow-xl p-1.5 z-50 flex flex-col gap-0.5"
 								>
 									{/* Stats Option */}
 									<button
@@ -269,7 +285,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 										disabled={!isRunning || isStopping}
 										onClick={() => {
 											if (isRunning && !isStopping) {
-												setIsMenuOpen(false);
+												handleCloseMenu();
 												onInspect(service);
 											}
 										}}
@@ -294,7 +310,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 											<button
 												type="button"
 												onClick={() => {
-													setIsMenuOpen(false);
+													handleCloseMenu();
 													onRestart(service.name);
 												}}
 												className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-brand-text hover:bg-[#F8F9FD] text-left transition-colors cursor-pointer"
@@ -306,7 +322,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 											<button
 												type="button"
 												onClick={() => {
-													setIsMenuOpen(false);
+													handleCloseMenu();
 													onStop(service.name);
 												}}
 												className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-brand-text hover:bg-[#F8F9FD] text-left transition-colors cursor-pointer"
@@ -323,7 +339,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 									<button
 										type="button"
 										onClick={() => {
-											setIsMenuOpen(false);
+											handleCloseMenu();
 											onUninstall(service.name);
 										}}
 										className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 text-left transition-colors cursor-pointer"
