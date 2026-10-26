@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { BrewService, SystemMetrics, BrewSystemInfo, AppUpdateInfo } from "../types/brew";
 import { sanitizeAndValidatePackage, sanitizeAndValidateSearch } from "../validation/validation";
 
-export const CURRENT_APP_VERSION = "0.1.0";
+export const CURRENT_APP_VERSION = "0.1.1";
 export const GITHUB_REPO = "mohit0224/homebrew-manager";
 export const INSTALL_TERMINAL_COMMAND = `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/install.sh)"`;
 
@@ -109,8 +109,8 @@ function normalizeInstalledItem(raw: any): InstalledPackageItem {
 }
 
 export const brewApi = {
-  async getServices(): Promise<BrewService[]> {
-    return await safeInvoke<BrewService[]>("get_services", undefined, []);
+  async getServices(forceRefresh: boolean = false): Promise<BrewService[]> {
+    return await safeInvoke<BrewService[]>("get_services", { forceRefresh }, []);
   },
 
   async startService(name: string): Promise<CommandOutput> {

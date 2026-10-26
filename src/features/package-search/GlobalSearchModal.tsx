@@ -7,8 +7,8 @@ import {
 	AlertCircle,
 	Loader2,
 } from "lucide-react";
-import { brewApi, SearchResultItem } from "../../core/api/brewApi";
-import { CommandLogEntry } from "../../core/types/brew";
+import { brewApi, SearchResultItem, InstalledPackageItem } from "../../core/api/brewApi";
+import { BrewService, CommandLogEntry } from "../../core/types/brew";
 import { Button } from "../../core/components/Button";
 
 interface GlobalSearchModalProps {
@@ -18,6 +18,8 @@ interface GlobalSearchModalProps {
 	onInstall: (name: string) => void;
 	runningActions: Record<string, any>;
 	onLog?: (type: CommandLogEntry["type"], text: string) => void;
+	installedPackages?: InstalledPackageItem[];
+	services?: BrewService[];
 }
 
 export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
@@ -27,6 +29,8 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 	onInstall,
 	runningActions,
 	onLog,
+	installedPackages = [],
+	services = [],
 }) => {
 	const [query, setQuery] = useState(initialQuery);
 	const [results, setResults] = useState<SearchResultItem[]>([]);
@@ -76,7 +80,23 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 		onLog?.("info", `[Global Search] Searching packages for "${trimmed}"...`);
 		try {
 			const items = await brewApi.searchPackages(trimmed);
-			setResults(items);
+			const enriched = items.map((item) => {
+				const lower = item.name.toLowerCase();
+				const isInst =
+					item.is_installed ||
+					installedPackages.some(
+						(p) =>
+							p.name.toLowerCase() === lower ||
+							p.name.split("/").pop()?.toLowerCase() === lower ||
+							lower.split("/").pop() === p.name.toLowerCase(),
+					) ||
+					services.some((s) => s.name.toLowerCase() === lower);
+				return {
+					...item,
+					is_installed: isInst,
+				};
+			});
+			setResults(enriched);
 			onLog?.(
 				"success",
 				`[Global Search] Search completed: Found ${items.length} package(s) matching "${trimmed}".`
@@ -259,24 +279,29 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 									)}
 								</div>
 
-								<Button
-									type="button"
-									onClick={() => onInstall(pkg.name)}
-									disabled={pkg.is_installed || isInstalling}
-									isLoading={isInstalling}
-									loadingText="Installing..."
-									spinner={<Loader2 size={13} className="animate-spin text-white" />}
-									icon={!pkg.is_installed ? <Download size={13} /> : undefined}
-									className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-all cursor-pointer ${
-										pkg.is_installed
-											? "bg-slate-100 text-brand-muted cursor-not-allowed"
-											: isInstalling
+								{pkg.is_installed ? (
+									<span className="bg-slate-100 text-slate-500 font-medium text-xs px-3.5 py-1.5 rounded-xl inline-flex items-center gap-1.5 cursor-default select-none border border-slate-200/60 shrink-0">
+										<CheckCircle size={12} className="text-emerald-500" />
+										Installed
+									</span>
+								) : (
+									<Button
+										type="button"
+										onClick={() => onInstall(pkg.name)}
+										disabled={isInstalling}
+										isLoading={isInstalling}
+										loadingText="Installing..."
+										spinner={<Loader2 size={13} className="animate-spin text-white" />}
+										icon={<Download size={13} />}
+										className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-all cursor-pointer ${
+											isInstalling
 												? "bg-brand-primary/60 text-white cursor-wait"
 												: "bg-brand-primary hover:bg-brand-primary-hover text-white shadow-xs"
-									}`}
-								>
-									{pkg.is_installed ? "Installed" : "Install"}
-								</Button>
+										}`}
+									>
+										Install
+									</Button>
+								)}
 							</div>
 						);
 					})}

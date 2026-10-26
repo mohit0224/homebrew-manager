@@ -36,7 +36,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 			loadingText,
 			icon,
 			spinner,
-			animateClick = true,
+			animateClick: _animateClick,
 			disabled,
 			type = "button",
 			...props
@@ -68,7 +68,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 			custom: "",
 		};
 
-		const animationClass = animateClick && !isDisabled ? "hm-button" : "";
 		const positionClass =
 			className.includes("absolute") || className.includes("fixed")
 				? ""
@@ -80,9 +79,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 				type={type}
 				disabled={isDisabled}
 				aria-busy={isLoading ? "true" : undefined}
-				className={`${positionClass} inline-flex items-center justify-center select-none cursor-pointer transition-all ${
+				className={`${positionClass} inline-flex items-center justify-center select-none cursor-pointer ${
 					variantStyles[variant] || ""
-				} ${sizeStyles[size] || ""} ${animationClass} ${
+				} ${sizeStyles[size] || ""} ${
 					isLoading ? "cursor-wait opacity-90" : ""
 				} ${disabled && !isLoading ? "opacity-50 cursor-not-allowed" : ""} ${className}`}
 				{...props}

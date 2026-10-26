@@ -1,8 +1,18 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process::Command;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
+use tauri::Emitter;
 use crate::metrics::MetricsState;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BrewLogPayload {
+    pub operation: String,
+    pub target: String,
+    pub stream: String,
+    pub line: String,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BrewServiceItem {
@@ -134,16 +144,16 @@ fn find_service_pid(name: &str, file: Option<&str>, launchctl_map: &HashMap<Stri
         }
     }
 
-    let proc_names = match name {
-        "mongodb-community" => vec!["mongod", "mongodb"],
-        "redis" => vec!["redis-server", "redis"],
-        "postgresql" | "postgresql@16" | "postgresql@15" | "postgresql@14" => vec!["postgres"],
-        "nginx" => vec!["nginx"],
-        "mysql" => vec!["mysqld"],
-        _ => vec![name],
+    let proc_names: &[&str] = match name {
+        "mongodb-community" => &["mongod", "mongodb"],
+        "redis" => &["redis-server", "redis"],
+        "postgresql" | "postgresql@16" | "postgresql@15" | "postgresql@14" => &["postgres"],
+        "nginx" => &["nginx"],
+        "mysql" => &["mysqld"],
+        _ => &[],
     };
 
-    for p_name in proc_names {
+    for &p_name in proc_names {
         if let Ok(output) = Command::new("pgrep").arg("-x").arg(p_name).output() {
             let out_str = String::from_utf8_lossy(&output.stdout);
             if let Some(first_line) = out_str.lines().next() {
@@ -162,6 +172,7 @@ pub fn list_services(metrics: &MetricsState) -> Result<Vec<BrewServiceItem>, Str
     let launchctl_map = get_launchctl_pids();
 
     let output = Command::new(&brew)
+        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
         .args(["services", "list", "--json"])
         .output();
 
@@ -226,6 +237,7 @@ fn parse_services_text_output(
     launchctl_map: &HashMap<String, u32>,
 ) -> Result<Vec<BrewServiceItem>, String> {
     let output = Command::new(brew)
+        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
         .args(["services", "list"])
         .output()
         .map_err(|e| e.to_string())?;
@@ -293,6 +305,7 @@ pub fn manage_service(action: &str, name: &str) -> Result<CommandOutput, String>
     }
 
     let output = Command::new(&brew)
+        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
         .args(["services", action, name])
         .output()
         .map_err(|e| format!("Command execution failed: {}", e))?;
@@ -304,10 +317,14 @@ pub fn manage_service(action: &str, name: &str) -> Result<CommandOutput, String>
     })
 }
 
-pub fn search_packages(query: &str) -> Result<Vec<SearchResultItem>, String> {
+pub fn search_packages(
+    query: &str,
+    installed_set: Option<&std::collections::HashSet<String>>,
+) -> Result<Vec<SearchResultItem>, String> {
     validate_search_query(query)?;
     let brew = find_brew_binary();
     let output = Command::new(&brew)
+        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
         .args(["search", query])
         .output()
         .map_err(|e| format!("Brew search failed: {}", e))?;
@@ -325,11 +342,23 @@ pub fn search_packages(query: &str) -> Result<Vec<SearchResultItem>, String> {
             if pkg.is_empty() {
                 continue;
             }
+            let pkg_lower = pkg.to_lowercase();
+            let is_installed = if let Some(set) = installed_set {
+                set.contains(&pkg_lower)
+                    || set.iter().any(|inst| {
+                        inst == &pkg_lower
+                            || inst.split('/').last() == Some(&pkg_lower.as_str())
+                            || pkg_lower.split('/').last() == Some(&inst.as_str())
+                    })
+            } else {
+                false
+            };
+
             results.push(SearchResultItem {
                 name: pkg.to_string(),
                 description: None,
                 version: None,
-                is_installed: false,
+                is_installed,
             });
         }
     }
@@ -338,40 +367,109 @@ pub fn search_packages(query: &str) -> Result<Vec<SearchResultItem>, String> {
     Ok(results)
 }
 
-pub fn install_package(name: &str) -> Result<CommandOutput, String> {
-    validate_name(name)?;
+pub fn run_brew_command_streaming(
+    app: Option<&tauri::AppHandle>,
+    operation: &str,
+    target: &str,
+    args: &[&str],
+) -> Result<CommandOutput, String> {
     let brew = find_brew_binary();
-    let output = Command::new(&brew)
-        .args(["install", name])
-        .output()
-        .map_err(|e| format!("Install failed: {}", e))?;
+    let mut cmd = Command::new(&brew);
+    cmd.env("HOMEBREW_NO_AUTO_UPDATE", "1");
+    cmd.args(args);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| format!("Command spawn failed: {}", e))?;
+
+    let stdout_pipe = child.stdout.take().ok_or("Failed to open stdout pipe")?;
+    let stderr_pipe = child.stderr.take().ok_or("Failed to open stderr pipe")?;
+
+    let app_out = app.cloned();
+    let op_out = operation.to_string();
+    let tgt_out = target.to_string();
+
+    let stdout_thread = std::thread::spawn(move || {
+        let mut collected = String::new();
+        let reader = BufReader::new(stdout_pipe);
+        for line_res in reader.lines() {
+            if let Ok(line) = line_res {
+                if let Some(ref a) = app_out {
+                    let _ = a.emit(
+                        "brew-log-line",
+                        BrewLogPayload {
+                            operation: op_out.clone(),
+                            target: tgt_out.clone(),
+                            stream: "stdout".to_string(),
+                            line: line.clone(),
+                        },
+                    );
+                }
+                if collected.len() < 500_000 {
+                    collected.push_str(&line);
+                    collected.push('\n');
+                }
+            }
+        }
+        collected
+    });
+
+    let app_err = app.cloned();
+    let op_err = operation.to_string();
+    let tgt_err = target.to_string();
+
+    let stderr_thread = std::thread::spawn(move || {
+        let mut collected = String::new();
+        let reader = BufReader::new(stderr_pipe);
+        for line_res in reader.lines() {
+            if let Ok(line) = line_res {
+                if let Some(ref a) = app_err {
+                    let _ = a.emit(
+                        "brew-log-line",
+                        BrewLogPayload {
+                            operation: op_err.clone(),
+                            target: tgt_err.clone(),
+                            stream: "stderr".to_string(),
+                            line: line.clone(),
+                        },
+                    );
+                }
+                if collected.len() < 500_000 {
+                    collected.push_str(&line);
+                    collected.push('\n');
+                }
+            }
+        }
+        collected
+    });
+
+    let stdout = stdout_thread.join().unwrap_or_default();
+    let stderr = stderr_thread.join().unwrap_or_default();
+    let status = child.wait().map_err(|e| format!("Command wait failed: {}", e))?;
 
     Ok(CommandOutput {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        success: status.success(),
+        stdout,
+        stderr,
     })
 }
 
-pub fn uninstall_package(name: &str) -> Result<CommandOutput, String> {
+pub fn install_package(app: Option<&tauri::AppHandle>, name: &str) -> Result<CommandOutput, String> {
+    validate_name(name)?;
+    run_brew_command_streaming(app, "install", name, &["install", name])
+}
+
+pub fn uninstall_package(app: Option<&tauri::AppHandle>, name: &str) -> Result<CommandOutput, String> {
     validate_name(name)?;
     let brew = find_brew_binary();
 
     // Stop the service first in case it is currently running
     let _ = Command::new(&brew)
+        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
         .args(["services", "stop", name])
         .output();
 
-    let output = Command::new(&brew)
-        .args(["uninstall", name])
-        .output()
-        .map_err(|e| format!("Uninstall failed: {}", e))?;
-
-    Ok(CommandOutput {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-    })
+    run_brew_command_streaming(app, "uninstall", name, &["uninstall", name])
 }
 
 pub fn get_all_installed_packages() -> Result<Vec<InstalledPackageItem>, String> {
@@ -406,6 +504,7 @@ pub fn get_all_installed_packages() -> Result<Vec<InstalledPackageItem>, String>
 pub fn get_outdated_packages() -> Result<Vec<OutdatedItem>, String> {
     let brew = find_brew_binary();
     let output = Command::new(&brew)
+        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
         .args(["outdated", "--json=v2"])
         .output()
         .map_err(|e| format!("Outdated check failed: {}", e))?;
@@ -459,22 +558,13 @@ pub fn get_outdated_packages() -> Result<Vec<OutdatedItem>, String> {
     Ok(Vec::new())
 }
 
-pub fn upgrade_package(name: Option<&str>) -> Result<CommandOutput, String> {
-    let brew = find_brew_binary();
-    let mut cmd = Command::new(&brew);
-    cmd.arg("upgrade");
+pub fn upgrade_package(app: Option<&tauri::AppHandle>, name: Option<&str>) -> Result<CommandOutput, String> {
     if let Some(pkg) = name {
         validate_name(pkg)?;
-        cmd.arg(pkg);
+        run_brew_command_streaming(app, "upgrade", pkg, &["upgrade", pkg])
+    } else {
+        run_brew_command_streaming(app, "upgrade", "all", &["upgrade"])
     }
-
-    let output = cmd.output().map_err(|e| format!("Upgrade failed: {}", e))?;
-
-    Ok(CommandOutput {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-    })
 }
 
 pub fn send_notification(title: &str, body: &str) -> Result<(), String> {
@@ -758,4 +848,36 @@ pub fn schedule_app_auto_restart() {
 
         std::process::exit(0);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_name() {
+        assert!(validate_name("redis").is_ok());
+        assert!(validate_name("postgresql@16").is_ok());
+        assert!(validate_name("mongodb-community").is_ok());
+        assert!(validate_name("").is_err());
+        assert!(validate_name("bad name with spaces").is_err());
+        assert!(validate_name("semi;colon").is_err());
+    }
+
+    #[test]
+    fn test_validate_search_query() {
+        assert!(validate_search_query("node").is_ok());
+        assert!(validate_search_query("python 3").is_ok());
+        assert!(validate_search_query("").is_err());
+        assert!(validate_search_query("   ").is_err());
+    }
+
+    #[test]
+    fn test_is_newer_version() {
+        assert!(is_newer_version("0.1.0", "0.2.0"));
+        assert!(is_newer_version("1.0.0", "1.0.1"));
+        assert!(!is_newer_version("1.0.1", "1.0.0"));
+        assert!(!is_newer_version("2.0.0", "2.0.0"));
+        assert!(is_newer_version("v1.2.3", "v1.2.4"));
+    }
 }
