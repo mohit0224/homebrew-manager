@@ -58,7 +58,7 @@ Choose either of the two installation methods below:
 Run this single command in your macOS Terminal. It downloads the latest DMG, installs the application to `/Applications`, clears the macOS quarantine flag, and launches the app automatically:
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/mohit0224/homebrew-manager/main/scripts/install.sh)"
+/bin/bash -c "$(curl -fsSL https://homebrew.galerin.in/install.sh)"
 ```
 
 ---
