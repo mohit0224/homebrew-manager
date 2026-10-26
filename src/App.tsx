@@ -297,6 +297,8 @@ export function App() {
 				onInstall={handleInstall}
 				runningActions={runningActions}
 				onLog={addLog}
+				installedPackages={installedPackages}
+				services={services}
 			/>
 		</div>
 	);

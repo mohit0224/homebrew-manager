@@ -15,38 +15,60 @@ use tauri_plugin_notification::NotificationExt;
 
 #[tauri::command]
 fn get_services(
+    force_refresh: Option<bool>,
     state: State<MetricsState>,
     bootstrap: State<BootstrapState>,
 ) -> Result<Vec<BrewServiceItem>, String> {
-    bootstrap.get_services(&state)
+    bootstrap.get_services(&state, force_refresh.unwrap_or(false))
 }
 
 #[tauri::command]
-fn start_service(name: String) -> Result<CommandOutput, String> {
-    manage_service("start", &name)
+fn start_service(name: String, bootstrap: State<BootstrapState>) -> Result<CommandOutput, String> {
+    let res = manage_service("start", &name)?;
+    bootstrap.invalidate_services_cache();
+    Ok(res)
 }
 
 #[tauri::command]
-fn stop_service(name: String) -> Result<CommandOutput, String> {
-    manage_service("stop", &name)
+fn stop_service(name: String, bootstrap: State<BootstrapState>) -> Result<CommandOutput, String> {
+    let res = manage_service("stop", &name)?;
+    bootstrap.invalidate_services_cache();
+    Ok(res)
 }
 
 #[tauri::command]
-fn restart_service(name: String) -> Result<CommandOutput, String> {
-    manage_service("restart", &name)
+fn restart_service(name: String, bootstrap: State<BootstrapState>) -> Result<CommandOutput, String> {
+    let res = manage_service("restart", &name)?;
+    bootstrap.invalidate_services_cache();
+    Ok(res)
 }
 
 #[tauri::command]
-fn search_brew_packages(query: String) -> Result<Vec<SearchResultItem>, String> {
-    search_packages(&query)
+fn search_brew_packages(
+    query: String,
+    bootstrap: State<BootstrapState>,
+) -> Result<Vec<SearchResultItem>, String> {
+    let mut installed_set = std::collections::HashSet::new();
+    if let Ok(lock) = bootstrap.cached_installed.read() {
+        for p in lock.iter() {
+            installed_set.insert(p.name.to_lowercase());
+        }
+    }
+    if let Ok(lock) = bootstrap.cached_services.read() {
+        for s in lock.iter() {
+            installed_set.insert(s.name.to_lowercase());
+        }
+    }
+    search_packages(&query, Some(&installed_set))
 }
 
 #[tauri::command]
 fn install_brew_package(
+    app: tauri::AppHandle,
     name: String,
     bootstrap: State<BootstrapState>,
 ) -> Result<CommandOutput, String> {
-    let res = install_package(&name)?;
+    let res = install_package(Some(&app), &name)?;
     let b = bootstrap.inner().clone();
     std::thread::spawn(move || {
         let _ = b.get_installed_packages(true);
@@ -57,10 +79,11 @@ fn install_brew_package(
 
 #[tauri::command]
 fn uninstall_brew_package(
+    app: tauri::AppHandle,
     name: String,
     bootstrap: State<BootstrapState>,
 ) -> Result<CommandOutput, String> {
-    let res = uninstall_package(&name)?;
+    let res = uninstall_package(Some(&app), &name)?;
     let b = bootstrap.inner().clone();
     std::thread::spawn(move || {
         let _ = b.get_installed_packages(true);
@@ -87,10 +110,11 @@ fn get_outdated(
 
 #[tauri::command]
 fn upgrade_brew_package(
+    app: tauri::AppHandle,
     name: Option<String>,
     bootstrap: State<BootstrapState>,
 ) -> Result<CommandOutput, String> {
-    let res = upgrade_package(name.as_deref())?;
+    let res = upgrade_package(Some(&app), name.as_deref())?;
     let b = bootstrap.inner().clone();
     std::thread::spawn(move || {
         let _ = b.get_installed_packages(true);

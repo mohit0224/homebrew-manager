@@ -10,6 +10,7 @@ import {
 } from "../types/brew";
 import {
   brewApi,
+  isTauriEnvironment,
   SearchResultItem,
   OutdatedItem,
   InstalledPackageItem,
@@ -201,10 +202,42 @@ export function useBrew() {
 
   // Action loading state
   const [runningActions, setRunningActions] = useState<Record<string, ServiceActionType | boolean>>({});
+  const runningActionsRef = useRef<Record<string, ServiceActionType | boolean>>({});
+  runningActionsRef.current = runningActions;
+  const isRefreshingRef = useRef(false);
   const [isRefreshingServices, setIsRefreshingServices] = useState(false);
 
   // Logs state
   const [logs, setLogs] = useState<CommandLogEntry[]>([]);
+
+  // Listen for real-time streaming output from long-running Homebrew operations
+  useEffect(() => {
+    if (!isTauriEnvironment()) return;
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<{ operation: string; target: string; stream: "stdout" | "stderr"; line: string }>(
+        "brew-log-line",
+        (event) => {
+          const payload = event.payload;
+          if (payload && payload.line && payload.line.trim().length > 0) {
+            const entryType = payload.stream === "stderr" ? "stderr" : "stdout";
+            const entry: CommandLogEntry = {
+              id: Math.random().toString(36).substring(7),
+              timestamp: new Date().toLocaleTimeString(),
+              type: entryType,
+              text: payload.line,
+            };
+            setLogs((prev) => [entry, ...prev.slice(0, 199)]);
+          }
+        },
+      ).then((unsub) => {
+        unlisten = unsub;
+      });
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   // Thresholds state with localStorage persistence
   const [thresholds, setThresholdsState] = useState<MetricThresholdConfig>(getInitialThresholds);
@@ -354,12 +387,19 @@ export function useBrew() {
   // Fetch Services & Metrics
   const refreshServices = useCallback(async (isManual?: boolean | unknown) => {
     const isManualTrigger = isManual === true;
+    if (!isManualTrigger && Object.keys(runningActionsRef.current).length > 0) {
+      return;
+    }
+    if (isRefreshingRef.current) {
+      return;
+    }
+    isRefreshingRef.current = true;
     setIsRefreshingServices(true);
     if (isManualTrigger) {
       addLog("info", "Refreshing Homebrew environment & services...");
     }
     try {
-      const data = await brewApi.getServices();
+      const data = await brewApi.getServices(isManualTrigger);
       hasLoadedServices.current = true;
       setServices(data);
 
@@ -426,6 +466,7 @@ export function useBrew() {
     } catch (err: any) {
       addLog("error", `Failed to refresh services: ${err?.message || err}`);
     } finally {
+      isRefreshingRef.current = false;
       setIsRefreshingServices(false);
     }
   }, [thresholds, addLog]);
@@ -504,9 +545,11 @@ export function useBrew() {
 
     bootApp();
 
-    // Dynamic polling: poll every 1500ms when inspecting a service modal, otherwise 3000ms
-    const pollInterval = selectedService ? 1500 : 3000;
-    const interval = setInterval(refreshServices, pollInterval);
+    // Dynamic polling: poll every 2000ms when inspecting a service modal, otherwise 5000ms
+    const pollInterval = selectedService ? 2000 : 5000;
+    const interval = setInterval(() => {
+      refreshServices(false);
+    }, pollInterval);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -609,7 +652,27 @@ export function useBrew() {
     addLog("info", `Searching Homebrew packages for "${trimmed}"...`);
     try {
       const results = await brewApi.searchPackages(trimmed);
-      setSearchResults(results);
+      const installedSet = new Set<string>();
+      installedPackages.forEach((p) => {
+        installedSet.add(p.name.toLowerCase());
+        const base = p.name.split("/").pop()?.toLowerCase();
+        if (base) installedSet.add(base);
+      });
+      services.forEach((s) => {
+        installedSet.add(s.name.toLowerCase());
+        const base = s.name.split("/").pop()?.toLowerCase();
+        if (base) installedSet.add(base);
+      });
+      const enrichedResults = results.map((pkg) => {
+        const lower = pkg.name.toLowerCase();
+        const base = lower.split("/").pop() || lower;
+        const isInstalled = pkg.is_installed || installedSet.has(lower) || installedSet.has(base);
+        return {
+          ...pkg,
+          is_installed: isInstalled,
+        };
+      });
+      setSearchResults(enrichedResults);
       addLog("success", `Search completed: Found ${results.length} package(s) matching "${trimmed}".`);
     } catch (err: any) {
       const msg = err?.message || "Search failed";
@@ -624,12 +687,9 @@ export function useBrew() {
   // Install Package
   const handleInstall = async (name: string) => {
     setRunningActions((prev) => ({ ...prev, [name]: "install" }));
-    addLog("info", `Installing package: ${name}... (this may take a moment)`);
+    addLog("info", `Installing package: ${name}... (streaming output below)`);
     try {
       const res = await brewApi.installPackage(name);
-      if (res.stdout && res.stdout.trim().length > 0) {
-        addLog("stdout", res.stdout.trim());
-      }
       if (res.success) {
         hasLoadedServices.current = true;
         addLog("success", `Successfully installed: ${name}`);
@@ -666,7 +726,7 @@ export function useBrew() {
       } else {
         addLog("stderr", `Install error for ${name}: ${res.stderr || res.stdout}`);
       }
-      await refreshServices();
+      await refreshServices(true);
     } catch (err: any) {
       addLog("error", `Failed to install ${name}: ${err?.message || err}`);
     } finally {
@@ -681,12 +741,9 @@ export function useBrew() {
   // Uninstall Package
   const handleUninstall = async (name: string) => {
     setRunningActions((prev) => ({ ...prev, [name]: "uninstall" }));
-    addLog("info", `Uninstalling package: ${name}... (this may take a moment)`);
+    addLog("info", `Uninstalling package: ${name}... (streaming output below)`);
     try {
       const res = await brewApi.uninstallPackage(name);
-      if (res.stdout && res.stdout.trim().length > 0) {
-        addLog("stdout", res.stdout.trim());
-      }
       if (res.success) {
         hasLoadedServices.current = true;
         addLog("success", `Successfully uninstalled: ${name}`);
@@ -703,7 +760,7 @@ export function useBrew() {
       } else {
         addLog("stderr", `Uninstall error for ${name}: ${res.stderr || res.stdout}`);
       }
-      await refreshServices();
+      await refreshServices(true);
       await refreshOutdated(true);
     } catch (err: any) {
       addLog("error", `Failed to uninstall ${name}: ${err?.message || err}`);
@@ -722,12 +779,9 @@ export function useBrew() {
     const displayName = target || "all outdated packages";
     const key = target || "all";
     setRunningActions((prev) => ({ ...prev, [key]: "upgrade" }));
-    addLog("info", `Starting upgrade for ${displayName}...`);
+    addLog("info", `Starting upgrade for ${displayName}... (streaming output below)`);
     try {
       const res = await brewApi.upgradePackage(target || undefined);
-      if (res.stdout && res.stdout.trim().length > 0) {
-        addLog("stdout", res.stdout.trim());
-      }
       if (res.success) {
         hasLoadedOutdated.current = true;
         addLog("success", `Successfully upgraded: ${displayName}`);
@@ -762,7 +816,7 @@ export function useBrew() {
         addLog("stderr", `Upgrade error for ${displayName}: ${res.stderr || res.stdout}`);
       }
       await refreshOutdated(true);
-      await refreshServices();
+      await refreshServices(true);
     } catch (err: any) {
       addLog("error", `Failed to upgrade ${displayName}: ${err?.message || err}`);
     } finally {

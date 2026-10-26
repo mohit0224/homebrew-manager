@@ -109,8 +109,8 @@ function normalizeInstalledItem(raw: any): InstalledPackageItem {
 }
 
 export const brewApi = {
-  async getServices(): Promise<BrewService[]> {
-    return await safeInvoke<BrewService[]>("get_services", undefined, []);
+  async getServices(forceRefresh: boolean = false): Promise<BrewService[]> {
+    return await safeInvoke<BrewService[]>("get_services", { forceRefresh }, []);
   },
 
   async startService(name: string): Promise<CommandOutput> {
