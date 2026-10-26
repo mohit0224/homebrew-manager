@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { SearchResultItem } from "../../core/api/brewApi";
+import { useVirtualizer } from "../../core/hooks/useVirtualList";
 import {
 	Search,
 	Download,
@@ -8,18 +9,22 @@ import {
 	Sparkles,
 	RotateCw,
 	X,
+	AppWindow,
+	Package,
 } from "lucide-react";
-import { motion } from "framer-motion";
 import { Button } from "../../core/components/Button";
 
 interface SearchViewProps {
 	onSearch: (query: string) => void;
-	onInstall: (name: string) => void;
+	onInstall: (name: string, isCask?: boolean) => void;
 	results: SearchResultItem[];
 	isSearching: boolean;
 	searchError: string | null;
 	runningActions: Record<string, any>;
 }
+
+const ROW_GAP = 12;
+const OVERSCAN_COUNT = 5;
 
 const QUICK_SUGGESTIONS = [
 	"redis",
@@ -39,7 +44,41 @@ export const SearchView: React.FC<SearchViewProps> = ({
 	searchError,
 	runningActions,
 }) => {
+	const scrollParentRef = useRef<HTMLDivElement | null>(null);
 	const [inputVal, setInputVal] = useState("");
+
+	const getScrollElement = useCallback(() => scrollParentRef.current, []);
+	const estimateSize = useCallback(
+		(index: number) => (results[index]?.description ? 92 : 68),
+		[results],
+	);
+	const getItemKey = useCallback(
+		(index: number) => {
+			const item = results[index];
+			return item ? `${item.packageType || "pkg"}-${item.name}` : index;
+		},
+		[results],
+	);
+
+	const rowVirtualizer = useVirtualizer({
+		count: results.length,
+		getScrollElement,
+		estimateSize,
+		overscan: OVERSCAN_COUNT,
+		gap: ROW_GAP,
+		getItemKey,
+	});
+
+	const virtualItems = rowVirtualizer.getVirtualItems();
+	const totalSize = rowVirtualizer.getTotalSize();
+
+	// Reset scroll position to top whenever search results update
+	useEffect(() => {
+		if (scrollParentRef.current) {
+			scrollParentRef.current.scrollTop = 0;
+		}
+		rowVirtualizer.scrollToOffset(0);
+	}, [results]);
 
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -143,60 +182,94 @@ export const SearchView: React.FC<SearchViewProps> = ({
 			)}
 
 			{/* Results List */}
-			<div className="flex flex-col gap-3">
-				{results.map((item) => {
-					const isInstalling = !!runningActions[item.name];
+			{results.length > 0 && (
+				<div
+					ref={scrollParentRef}
+					role="region"
+					aria-label="Search results list"
+					className="max-h-[calc(100vh-320px)] min-h-60 overflow-y-auto pr-1 select-none"
+				>
+					<div className="relative w-full" style={{ height: `${totalSize}px` }}>
+						{virtualItems.map((virtualRow) => {
+							const item = results[virtualRow.index];
+							if (!item) return null;
 
-					return (
-						<motion.div
-							key={item.name}
-							initial={{ opacity: 0, y: 6 }}
-							animate={{ opacity: 1, y: 0 }}
-							className="bg-white rounded-2xl border border-brand-border p-5 shadow-xs hover:shadow-md transition-shadow flex items-center justify-between gap-4"
-						>
-							<div className="flex flex-col min-w-0">
-								<div className="flex items-center gap-2.5">
-									<span className="font-bold text-base text-brand-text">
-										{item.name}
-									</span>
-									{item.is_installed && (
-										<span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-[#E8F8F0] text-brand-success px-2 py-0.5 rounded-full">
-											<CheckCircle size={11} /> Installed
-										</span>
-									)}
+							const isInstalling = !!runningActions[item.name];
+							const isCask = item.packageType === "cask";
+
+							return (
+								<div
+									key={virtualRow.key}
+									data-index={virtualRow.index}
+									ref={rowVirtualizer.measureElement}
+									className="absolute top-0 left-0 w-full"
+									style={{
+										transform: `translateY(${virtualRow.start}px)`,
+									}}
+								>
+									<div className="bg-white rounded-2xl border border-brand-border p-5 shadow-xs hover:shadow-md transition-shadow flex items-center justify-between gap-4">
+										<div className="flex flex-col min-w-0">
+											<div className="flex items-center gap-2.5 flex-wrap">
+												<div
+													className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+														isCask
+															? "bg-purple-50 text-purple-600"
+															: "bg-blue-50 text-blue-600"
+													}`}
+												>
+													{isCask ? <AppWindow size={15} /> : <Package size={15} />}
+												</div>
+
+												<span className="font-bold text-base text-brand-text">
+													{item.name}
+												</span>
+
+												<span
+													className={`px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wider ${
+														isCask
+															? "bg-purple-100 text-purple-700 border border-purple-200"
+															: "bg-blue-100 text-blue-700 border border-blue-200"
+													}`}
+												>
+													{isCask ? "Cask" : "Formula"}
+												</span>
+											</div>
+											{item.description && (
+												<p className="text-xs text-brand-muted mt-1.5 line-clamp-2">
+													{item.description}
+												</p>
+											)}
+										</div>
+
+										<div className="shrink-0">
+											{item.is_installed ? (
+												<span className="bg-slate-100 text-slate-500 font-medium text-xs px-3.5 py-2 rounded-xl inline-flex items-center gap-1.5 cursor-default select-none border border-slate-200/60">
+													<CheckCircle size={12} className="text-emerald-500" />
+													Installed
+												</span>
+											) : (
+												<Button
+													className="bg-brand-primary hover:bg-brand-primary-hover text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+													disabled={isInstalling}
+													isLoading={isInstalling}
+													loadingText="Installing..."
+													spinner={
+														<RotateCw size={13} className="animate-spin text-white" />
+													}
+													icon={<Download size={13} />}
+													onClick={() => onInstall(item.name, isCask)}
+												>
+													Install
+												</Button>
+											)}
+										</div>
+									</div>
 								</div>
-								{item.description && (
-									<p className="text-xs text-brand-muted mt-1 line-clamp-2">
-										{item.description}
-									</p>
-								)}
-							</div>
-
-							<div className="shrink-0">
-								{item.is_installed ? (
-									<span className="bg-slate-100 text-slate-500 font-medium text-xs px-3.5 py-2 rounded-xl inline-block cursor-default">
-										Installed
-									</span>
-								) : (
-									<Button
-										className="bg-brand-primary hover:bg-brand-primary-hover text-white font-semibold text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-										disabled={isInstalling}
-										isLoading={isInstalling}
-										loadingText="Installing..."
-										spinner={
-											<RotateCw size={13} className="animate-spin text-white" />
-										}
-										icon={<Download size={13} />}
-										onClick={() => onInstall(item.name)}
-									>
-										Install
-									</Button>
-								)}
-							</div>
-						</motion.div>
-					);
-				})}
-			</div>
+							);
+						})}
+					</div>
+				</div>
+			)}
 		</div>
 	);
 };

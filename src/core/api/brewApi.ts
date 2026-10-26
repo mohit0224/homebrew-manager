@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { BrewService, SystemMetrics, BrewSystemInfo, AppUpdateInfo } from "../types/brew";
 import { sanitizeAndValidatePackage, sanitizeAndValidateSearch } from "../validation/validation";
 
-export const CURRENT_APP_VERSION = "0.1.1";
+export const CURRENT_APP_VERSION = "0.2.0";
 export const GITHUB_REPO = "mohit0224/homebrew-manager";
 export const INSTALL_TERMINAL_COMMAND = `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/install.sh)"`;
 
@@ -16,7 +16,9 @@ export interface SearchResultItem {
   name: string;
   description?: string;
   version?: string;
-  is_installed: boolean;
+  is_installed?: boolean;
+  isInstalled?: boolean;
+  packageType?: "formula" | "cask";
 }
 
 export interface OutdatedItem {
@@ -25,12 +27,14 @@ export interface OutdatedItem {
   current_version: string;
   installedVersions?: string[];
   currentVersion?: string;
+  packageType?: "formula" | "cask";
 }
 
 export interface InstalledPackageItem {
   name: string;
   installed_versions: string[];
   installedVersions?: string[];
+  packageType?: "formula" | "cask";
 }
 
 export function isTauriEnvironment(): boolean {
@@ -91,6 +95,7 @@ function normalizeOutdatedItem(raw: any): OutdatedItem {
     installedVersions: installed,
     current_version: current,
     currentVersion: current,
+    packageType: raw?.packageType === "cask" || raw?.package_type === "cask" ? "cask" : "formula",
   };
 }
 
@@ -105,6 +110,18 @@ function normalizeInstalledItem(raw: any): InstalledPackageItem {
     name: String(raw?.name || ""),
     installed_versions: installed,
     installedVersions: installed,
+    packageType: raw?.packageType === "cask" || raw?.package_type === "cask" ? "cask" : "formula",
+  };
+}
+
+function normalizeSearchResultItem(raw: any): SearchResultItem {
+  return {
+    name: String(raw?.name || ""),
+    description: raw?.description,
+    version: raw?.version,
+    is_installed: Boolean(raw?.is_installed ?? raw?.isInstalled),
+    isInstalled: Boolean(raw?.is_installed ?? raw?.isInstalled),
+    packageType: raw?.packageType === "cask" || raw?.package_type === "cask" ? "cask" : "formula",
   };
 }
 
@@ -142,27 +159,34 @@ export const brewApi = {
     if (!val.isValid) {
       throw new Error(val.error);
     }
-    return await safeInvoke<SearchResultItem[]>(
+    const rawList = await safeInvoke<any[]>(
       "search_brew_packages",
       { query: val.sanitized },
       [],
     );
+    return Array.isArray(rawList) ? rawList.map(normalizeSearchResultItem) : [];
   },
 
-  async installPackage(name: string): Promise<CommandOutput> {
+  async installPackage(name: string, isCask: boolean = false): Promise<CommandOutput> {
     const val = sanitizeAndValidatePackage(name);
     if (!val.isValid) {
       throw new Error(val.error);
     }
-    return await safeInvoke<CommandOutput>("install_brew_package", { name: val.sanitized });
+    return await safeInvoke<CommandOutput>("install_brew_package", {
+      name: val.sanitized,
+      isCask,
+    });
   },
 
-  async uninstallPackage(name: string): Promise<CommandOutput> {
+  async uninstallPackage(name: string, isCask: boolean = false): Promise<CommandOutput> {
     const val = sanitizeAndValidatePackage(name);
     if (!val.isValid) {
       throw new Error(val.error);
     }
-    return await safeInvoke<CommandOutput>("uninstall_brew_package", { name: val.sanitized });
+    return await safeInvoke<CommandOutput>("uninstall_brew_package", {
+      name: val.sanitized,
+      isCask,
+    });
   },
 
   async getInstalledPackages(forceRefresh: boolean = false): Promise<InstalledPackageItem[]> {
@@ -183,15 +207,18 @@ export const brewApi = {
     return Array.isArray(rawList) ? rawList.map(normalizeOutdatedItem) : [];
   },
 
-  async upgradePackage(name?: string): Promise<CommandOutput> {
+  async upgradePackage(name?: string, isCask: boolean = false): Promise<CommandOutput> {
     if (typeof name === "string" && name.trim().length > 0) {
       const val = sanitizeAndValidatePackage(name);
       if (!val.isValid) {
         throw new Error(val.error);
       }
-      return await safeInvoke<CommandOutput>("upgrade_brew_package", { name: val.sanitized });
+      return await safeInvoke<CommandOutput>("upgrade_brew_package", {
+        name: val.sanitized,
+        isCask,
+      });
     }
-    return await safeInvoke<CommandOutput>("upgrade_brew_package", { name: null });
+    return await safeInvoke<CommandOutput>("upgrade_brew_package", { name: null, isCask: false });
   },
 
   async getSystemMetrics(): Promise<SystemMetrics> {

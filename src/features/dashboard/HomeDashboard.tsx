@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useCallback } from "react";
 import {
 	BrewService,
 	isServiceRunning,
@@ -7,6 +7,7 @@ import {
 } from "../../core/types/brew";
 import { OutdatedItem } from "../../core/api/brewApi";
 import { PersistedStats } from "../../core/hooks/useBrew";
+import { useVirtualizer } from "../../core/hooks/useVirtualList";
 import {
 	Package,
 	ArrowUp,
@@ -39,6 +40,11 @@ interface HomeDashboardProps {
 	onRefreshOutdated?: () => void;
 }
 
+const ESTIMATED_DASHBOARD_ROW_HEIGHT = 58;
+const ROW_GAP = 0;
+const OVERSCAN_COUNT = 5;
+const DASHBOARD_SNAPSHOT_KEY = "homebrew_dashboard_recent_virtual_list";
+
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 	services,
 	outdated,
@@ -58,7 +64,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 			: (stats?.activeOperations ?? 0);
 
 	const installedPackagesCount =
-		services.length > 0 ? services.length : (stats?.installedPackages ?? 0);
+		stats?.installedPackages && stats.installedPackages > 0
+			? stats.installedPackages
+			: services.length;
 
 	const availableUpdatesCount =
 		outdated.length > 0 ? outdated.length : (stats?.availableUpdates ?? 0);
@@ -76,6 +84,28 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 	const displayPackages = services.filter(
 		(s) => s.status?.toLowerCase() === "started" || isServiceRunning(s.status),
 	);
+
+	const scrollParentRef = useRef<HTMLDivElement | null>(null);
+
+	const getScrollElement = useCallback(() => scrollParentRef.current, []);
+	const estimateSize = useCallback(() => ESTIMATED_DASHBOARD_ROW_HEIGHT, []);
+	const getItemKey = useCallback(
+		(index: number) => displayPackages[index]?.name ?? index,
+		[displayPackages],
+	);
+
+	const rowVirtualizer = useVirtualizer({
+		count: displayPackages.length,
+		getScrollElement,
+		estimateSize,
+		overscan: OVERSCAN_COUNT,
+		gap: ROW_GAP,
+		getItemKey,
+		snapshotKey: DASHBOARD_SNAPSHOT_KEY,
+	});
+
+	const virtualItems = rowVirtualizer.getVirtualItems();
+	const totalSize = rowVirtualizer.getTotalSize();
 
 	const getPackageIcon = (name: string) => {
 		const n = name.toLowerCase();
@@ -284,118 +314,140 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 					</div>
 				) : (
 					<div className="overflow-x-auto">
-						<table className="w-full text-left text-sm">
-							<thead>
-								<tr className="border-b border-brand-border text-xs font-semibold text-brand-muted">
-									<th className="pb-3 font-semibold">Name</th>
-									<th className="pb-3 font-semibold">Version / PID</th>
-									<th className="pb-3 font-semibold">Status</th>
-									<th className="pb-3 font-semibold">Installed On</th>
-									<th className="pb-3 font-semibold text-right">Actions</th>
-								</tr>
-							</thead>
-							<tbody className="divide-y divide-brand-border/60">
-								{displayPackages.map((service) => {
-									const isOutdated = outdatedSet.has(
-										service.name.toLowerCase(),
-									);
-									const isRunning =
-										service.status === "started" ||
-										service.status === "running";
+						<div className="min-w-160">
+							{/* Table Header */}
+							<div className="grid grid-cols-12 gap-4 pb-3 border-b border-brand-border text-xs font-semibold text-brand-muted select-none">
+								<div className="col-span-4">Name</div>
+								<div className="col-span-2">Version / PID</div>
+								<div className="col-span-2">Status</div>
+								<div className="col-span-3">Installed On</div>
+								<div className="col-span-1 text-right">Actions</div>
+							</div>
 
-									return (
-										<tr
-											key={service.name}
-											className=" transition-colors"
-										>
-											{/* Name */}
-											<td className="py-3.5 pr-4">
-												<div className="flex items-center gap-3">
-													{getPackageIcon(service.name)}
-													<div className="flex flex-col min-w-0">
-														<span className="font-semibold text-sm text-brand-text truncate">
-															{service.name}
-														</span>
-														<span className="text-[11px] text-brand-muted truncate">
-															{service.file
-																? service.file.split("/").pop()
-																: "formula"}
-														</span>
+							{/* Virtualized Runway */}
+							<div
+								ref={scrollParentRef}
+								role="region"
+								aria-label="Recent started packages list"
+								className="max-h-96 overflow-y-auto select-none"
+							>
+								<div className="relative w-full" style={{ height: `${totalSize}px` }}>
+									{virtualItems.map((virtualRow) => {
+										const service = displayPackages[virtualRow.index];
+										if (!service) return null;
+
+										const isOutdated = outdatedSet.has(
+											service.name.toLowerCase(),
+										);
+										const isRunning =
+											service.status === "started" ||
+											service.status === "running";
+
+										return (
+											<div
+												key={virtualRow.key}
+												data-index={virtualRow.index}
+												ref={rowVirtualizer.measureElement}
+												className="absolute top-0 left-0 w-full"
+												style={{
+													transform: `translateY(${virtualRow.start}px)`,
+												}}
+											>
+												<div className="grid grid-cols-12 gap-4 items-center py-3 border-b border-brand-border/60 hover:bg-slate-50/50 transition-colors">
+													{/* Name */}
+													<div className="col-span-4 flex items-center gap-3 min-w-0 pr-2">
+														{getPackageIcon(service.name)}
+														<div className="flex flex-col min-w-0">
+															<span className="font-semibold text-sm text-brand-text truncate">
+																{service.name}
+															</span>
+															<span className="text-[11px] text-brand-muted truncate">
+																{service.file
+																	? service.file.split("/").pop()
+																	: "formula"}
+															</span>
+														</div>
+													</div>
+
+													{/* Version / PID */}
+													<div className="col-span-2 font-mono text-xs text-brand-muted truncate">
+														{service.pid ? `PID: ${service.pid}` : "stable"}
+													</div>
+
+													{/* Status */}
+													<div className="col-span-2">
+														{isOutdated ? (
+															<span className="inline-flex items-center gap-1 bg-[#FEF6E8] text-brand-warning text-xs font-semibold px-2.5 py-0.5 rounded-full">
+																<AlertCircle size={12} />
+																<span>Update Available</span>
+															</span>
+														) : isRunning ? (
+															<span className="inline-flex items-center gap-1 bg-[#E8F8F0] text-brand-success text-xs font-semibold px-2.5 py-0.5 rounded-full">
+																<CheckCircle2 size={12} />
+																<span>Active</span>
+															</span>
+														) : (
+															<span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs font-medium px-2.5 py-0.5 rounded-full">
+																<span>Installed</span>
+															</span>
+														)}
+													</div>
+
+													{/* Installed On / Details */}
+													<div className="col-span-3 text-xs text-brand-muted truncate pr-2">
+														{service.user
+															? `User: ${service.user}`
+															: "Homebrew managed"}
+													</div>
+
+													{/* Actions */}
+													<div className="col-span-1 text-right flex justify-end">
+														{isOutdated ? (
+															(() => {
+																const isUpgrading =
+																	runningActions[service.name] === "upgrade" ||
+																	!!runningActions[service.name] ||
+																	!!runningActions["all"];
+																return (
+																	<Button
+																		onClick={() => onUpgradePackage(service.name)}
+																		disabled={isUpgrading}
+																		isLoading={isUpgrading}
+																		loadingText="Updating..."
+																		spinner={
+																			<RotateCw size={11} className="animate-spin text-current" />
+																		}
+																		className="bg-brand-primary-light hover:bg-brand-primary text-brand-primary hover:text-white text-xs font-semibold px-2.5 py-1 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 shrink-0"
+																	>
+																		Update
+																	</Button>
+																);
+															})()
+														) : (
+															<Button
+																onClick={() => isRunning && onInspectService(service)}
+																disabled={!isRunning}
+																className={`w-8 h-8 rounded-lg inline-flex items-center justify-center transition-colors shrink-0 ${
+																	isRunning
+																		? "hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
+																		: "opacity-40 text-slate-300 cursor-not-allowed"
+																}`}
+																title={
+																	isRunning
+																		? "Inspect Service"
+																		: "Service must be running to view stats"
+																}
+																icon={<MoreHorizontal size={16} />}
+															/>
+														)}
 													</div>
 												</div>
-											</td>
-
-											{/* Version / PID */}
-											<td className="py-3.5 pr-4 font-mono text-xs text-brand-muted">
-												{service.pid ? `PID: ${service.pid}` : "stable"}
-											</td>
-
-											{/* Status */}
-											<td className="py-3.5 pr-4">
-												{isOutdated ? (
-													<span className="inline-flex items-center gap-1 bg-[#FEF6E8] text-brand-warning text-xs font-semibold px-2.5 py-0.5 rounded-full">
-														<AlertCircle size={12} />
-														<span>Update Available</span>
-													</span>
-												) : isRunning ? (
-													<span className="inline-flex items-center gap-1 bg-[#E8F8F0] text-brand-success text-xs font-semibold px-2.5 py-0.5 rounded-full">
-														<CheckCircle2 size={12} />
-														<span>Active</span>
-													</span>
-												) : (
-													<span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs font-medium px-2.5 py-0.5 rounded-full">
-														<span>Installed</span>
-													</span>
-												)}
-											</td>
-
-											{/* Installed On / Details */}
-											<td className="py-3.5 pr-4 text-xs text-brand-muted">
-												{service.user
-													? `User: ${service.user}`
-													: "Homebrew managed"}
-											</td>
-
-											{/* Actions */}
-											<td className="py-3.5 text-right">
-												{isOutdated ? (
-													(() => {
-														const isUpgrading =
-															runningActions[service.name] === "upgrade" ||
-															!!runningActions[service.name] ||
-															!!runningActions["all"];
-														return (
-															<Button
-																onClick={() => onUpgradePackage(service.name)}
-																disabled={isUpgrading}
-																isLoading={isUpgrading}
-																loadingText="Updating..."
-																spinner={<RotateCw size={11} className="animate-spin text-current" />}
-																className="bg-brand-primary-light hover:bg-brand-primary text-brand-primary hover:text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1.5"
-															>
-																Update
-															</Button>
-														);
-													})()
-												) : (
-													<Button
-														onClick={() => isRunning && onInspectService(service)}
-														disabled={!isRunning}
-														className={`w-8 h-8 rounded-lg inline-flex items-center justify-center transition-colors ${
-															isRunning
-																? "hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
-																: "opacity-40 text-slate-300 cursor-not-allowed"
-														}`}
-														title={isRunning ? "Inspect Service" : "Service must be running to view stats"}
-														icon={<MoreHorizontal size={16} />}
-													/>
-												)}
-											</td>
-										</tr>
-									);
-								})}
-							</tbody>
-						</table>
+											</div>
+										);
+									})}
+								</div>
+							</div>
+						</div>
 					</div>
 				)}
 			</div>

@@ -181,7 +181,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 			</div>
 
 			{/* Minimalist Galerin Branding */}
-			<div className="bg-white rounded-xl px-3.5 py-2.5 border border-brand-border shadow-xs flex items-center justify-between text-xs select-none">
+			<div className="px-3.5 pt-2.5 border-t border-brand-border flex items-center justify-between text-xs select-none">
 				<div className="flex items-center gap-1.5">
 					<span
 						className={`w-1.5 h-1.5 rounded-full ${

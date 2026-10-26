@@ -102,109 +102,90 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 
 		return (
 			<motion.div
-				className="bg-white rounded-2xl border border-brand-border p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-4 relative"
-				layout
+				className="bg-white rounded-2xl border border-brand-border p-5 shadow-xs hover:shadow-md transition-shadow flex flex-col md:flex-row md:items-center justify-between gap-4 relative"
 				initial={false}
 				animate={{ opacity: 1, scale: 1 }}
 				exit={{ opacity: 0, scale: 0.98 }}
 				transition={{ duration: 0.15 }}
 			>
-				{/* Top Header */}
-				<div className="flex items-start justify-between gap-3">
+				{/* Left Section: Icon + Service Name + Status & Inline Metrics */}
+				<div className="flex items-center gap-3.5 min-w-0">
+					<div
+						className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+							isRunning
+								? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+								: "bg-slate-100 text-slate-500 border border-slate-200"
+						}`}
+					>
+						<Cpu size={20} />
+					</div>
+
 					<div className="flex flex-col min-w-0">
-						<span className="font-bold text-base text-brand-text truncate">
-							{service.name}
-						</span>
-						<div className="flex items-center gap-2 mt-1 text-xs text-brand-muted">
+						<div className="flex items-center gap-2.5 flex-wrap">
+							<span className="font-bold text-base text-brand-text truncate">
+								{service.name}
+							</span>
+
+							{isRunning && !isStopping && !isUninstalling ? (
+								<span className="inline-flex items-center gap-1.5 bg-[#E8F8F0] text-brand-success text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">
+									<span className="w-1.5 h-1.5 rounded-full bg-brand-success animate-pulse" />
+									<span>{isRestarting ? "Restarting..." : "Active"}</span>
+								</span>
+							) : service.status === "error" ? (
+								<span className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-600 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">
+									<span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
+									<span>Error</span>
+								</span>
+							) : (
+								<span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-500 text-xs font-medium px-2.5 py-0.5 rounded-full shrink-0">
+									<span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+									<span>
+										{isUninstalling
+											? "Uninstalling..."
+											: isStopping
+												? "Stopping..."
+												: "Stopped"}
+									</span>
+								</span>
+							)}
+
+							<span className="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">
+								Service
+							</span>
+						</div>
+
+						<div className="flex items-center gap-2.5 mt-1 text-xs text-brand-muted flex-wrap">
 							{service.pid ? (
-								<span>
-									PID:{" "}
-									<strong className="text-brand-text font-semibold">
-										{service.pid}
-									</strong>
+								<span className="font-mono bg-slate-100 px-2 py-0.5 rounded-md text-slate-600">
+									PID: <strong className="text-brand-text font-semibold">{service.pid}</strong>
 								</span>
 							) : null}
 							{service.user ? (
-								<span>
-									User:{" "}
-									<strong className="text-brand-text font-semibold">
-										{service.user}
-									</strong>
+								<span className="font-mono bg-slate-100 px-2 py-0.5 rounded-md text-slate-600">
+									User: <strong className="text-brand-text font-semibold">{service.user}</strong>
 								</span>
 							) : null}
-							{!service.pid && !service.user ? (
-								<span>System daemon</span>
-							) : null}
+							{isRunning && !isStopping && !isUninstalling ? (
+								<div className="flex items-center gap-2">
+									<span className="inline-flex items-center gap-1 bg-[#F0FDF4] text-emerald-700 px-2 py-0.5 rounded-md font-mono text-xs font-medium">
+										<Cpu size={11} /> {typeof service.cpu === "number" ? `${service.cpu.toFixed(1)}%` : "0%"}
+									</span>
+									<span className="inline-flex items-center gap-1 bg-[#F0FDF4] text-emerald-700 px-2 py-0.5 rounded-md font-mono text-xs font-medium">
+										<HardDrive size={11} /> {typeof service.memory === "number" ? `${service.memory} MB` : "0 MB"}
+									</span>
+								</div>
+							) : (
+								<span className="text-xs text-brand-muted">System background daemon</span>
+							)}
 						</div>
 					</div>
-
-					{/* Status Badge */}
-					{isRunning && !isStopping && !isUninstalling ? (
-						<span className="inline-flex items-center gap-1.5 bg-[#E8F8F0] text-brand-success text-xs font-semibold px-2.5 py-1 rounded-full shrink-0">
-							<span className="w-1.5 h-1.5 rounded-full bg-brand-success animate-pulse" />
-							<span>{isRestarting ? "Restarting..." : "Active"}</span>
-						</span>
-					) : service.status === "error" ? (
-						<span className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-600 text-xs font-semibold px-2.5 py-1 rounded-full shrink-0">
-							<span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
-							<span>Error</span>
-						</span>
-					) : (
-						<span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-500 text-xs font-medium px-2.5 py-1 rounded-full shrink-0">
-							<span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-							<span>
-								{isUninstalling
-									? "Uninstalling..."
-									: isStopping
-										? "Stopping..."
-										: "Stopped"}
-							</span>
-						</span>
-					)}
 				</div>
 
-				{/* Metrics Row */}
-				{isRunning && !isStopping && !isUninstalling ? (
-					<div className="grid grid-cols-2 gap-2.5">
-						<div className="bg-[#F8F9FD] rounded-xl p-2.5 border border-brand-border flex flex-col gap-0.5">
-							<span className="text-[11px] font-medium text-brand-muted flex items-center gap-1">
-								<Cpu size={12} className="text-brand-primary" /> CPU
-							</span>
-							<span className="text-sm font-bold text-brand-text">
-								{typeof service.cpu === "number"
-									? `${service.cpu.toFixed(1)}%`
-									: "0.0%"}
-							</span>
-						</div>
-
-						<div className="bg-[#F8F9FD] rounded-xl p-2.5 border border-brand-border flex flex-col gap-0.5">
-							<span className="text-[11px] font-medium text-brand-muted flex items-center gap-1">
-								<HardDrive size={12} className="text-brand-secondary" /> RAM
-							</span>
-							<span className="text-sm font-bold text-brand-text">
-								{typeof service.memory === "number"
-									? `${service.memory} MB`
-									: "0 MB"}
-							</span>
-						</div>
-					</div>
-				) : (
-					<div className="bg-[#F8F9FD] rounded-xl p-2.5 border border-brand-border text-center">
-						<span className="text-xs text-brand-muted">
-							{isUninstalling
-								? "Uninstalling package..."
-								: isStopping
-									? "Service is stopping..."
-									: "Service is stopped"}
-						</span>
-					</div>
-				)}
-
-				{/* Action Buttons: Main Action + 3-Dots Dropdown Menu */}
-				<div className="flex items-center gap-2 pt-1 border-t border-brand-border/60">
+				{/* Right Section: Action Controls */}
+				<div className="flex items-center gap-2 shrink-0">
 					{isUninstalling ? (
 						<Button
-							className="flex-1 bg-rose-50 text-rose-600 border border-rose-200 font-semibold text-xs py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs"
+							className="bg-rose-50 text-rose-600 border border-rose-200 font-semibold text-xs py-2 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs"
 							disabled
 							isLoading
 							loadingText="Uninstalling..."
@@ -216,7 +197,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 						</Button>
 					) : isRestarting ? (
 						<Button
-							className="flex-1 bg-brand-primary-light text-brand-primary border border-indigo-200 font-semibold text-xs py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs"
+							className="bg-brand-primary-light text-brand-primary border border-indigo-200 font-semibold text-xs py-2 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs"
 							disabled
 							isLoading
 							loadingText="Restarting..."
@@ -231,7 +212,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 						</Button>
 					) : showRunningControls ? (
 						<Button
-							className="flex-1 bg-brand-error hover:bg-[#D43D3D] text-white font-semibold text-xs py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+							className="bg-brand-error hover:bg-[#D43D3D] text-white font-semibold text-xs py-2 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
 							disabled={isLoading}
 							isLoading={isStopping}
 							loadingText="Stopping..."
@@ -245,7 +226,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 						</Button>
 					) : (
 						<Button
-							className="flex-1 bg-brand-success hover:bg-[#138959] text-white font-semibold text-xs py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+							className="bg-brand-success hover:bg-[#138959] text-white font-semibold text-xs py-2 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
 							disabled={isLoading}
 							isLoading={isStarting}
 							loadingText="Starting..."
@@ -262,7 +243,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 					{/* 3-Dots Dropdown Menu Container */}
 					<div className="relative shrink-0" ref={menuRef}>
 						<Button
-							className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-all shadow-xs cursor-pointer ${
+							className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all shadow-xs cursor-pointer ${
 								isMenuOpen
 									? "bg-brand-primary-light text-brand-primary border-brand-primary/30"
 									: "bg-white hover:bg-[#F8F9FD] text-brand-muted hover:text-brand-text border-brand-border"
@@ -280,7 +261,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = React.memo(
 									animate={{ opacity: 1, scale: 1, y: 0 }}
 									exit={{ opacity: 0, scale: 0.95, y: 4 }}
 									transition={{ duration: 0.12 }}
-									className="absolute right-0 bottom-full mb-2 w-44 bg-white rounded-2xl border border-brand-border shadow-xl p-1.5 z-30 flex flex-col gap-0.5"
+									className="absolute right-0 top-full mt-2 w-44 bg-white rounded-2xl border border-brand-border shadow-xl p-1.5 z-30 flex flex-col gap-0.5"
 								>
 									{/* Stats Option */}
 									<button

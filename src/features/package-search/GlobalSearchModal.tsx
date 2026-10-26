@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
 	Search,
 	X,
@@ -6,21 +6,27 @@ import {
 	CheckCircle,
 	AlertCircle,
 	Loader2,
+	AppWindow,
+	Package,
 } from "lucide-react";
 import { brewApi, SearchResultItem, InstalledPackageItem } from "../../core/api/brewApi";
 import { BrewService, CommandLogEntry } from "../../core/types/brew";
+import { useVirtualizer } from "../../core/hooks/useVirtualList";
 import { Button } from "../../core/components/Button";
 
 interface GlobalSearchModalProps {
 	isOpen: boolean;
 	initialQuery: string;
 	onClose: () => void;
-	onInstall: (name: string) => void;
+	onInstall: (name: string, isCask?: boolean) => void;
 	runningActions: Record<string, any>;
 	onLog?: (type: CommandLogEntry["type"], text: string) => void;
 	installedPackages?: InstalledPackageItem[];
 	services?: BrewService[];
 }
+
+const ROW_GAP = 8;
+const OVERSCAN_COUNT = 5;
 
 export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 	isOpen,
@@ -37,6 +43,40 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const scrollParentRef = useRef<HTMLDivElement | null>(null);
+
+	const getScrollElement = useCallback(() => scrollParentRef.current, []);
+	const estimateSize = useCallback(
+		(index: number) => (results[index]?.description ? 76 : 56),
+		[results],
+	);
+	const getItemKey = useCallback(
+		(index: number) => {
+			const item = results[index];
+			return item ? `${item.packageType || "pkg"}-${item.name}` : index;
+		},
+		[results],
+	);
+
+	const rowVirtualizer = useVirtualizer({
+		count: results.length,
+		getScrollElement,
+		estimateSize,
+		overscan: OVERSCAN_COUNT,
+		gap: ROW_GAP,
+		getItemKey,
+	});
+
+	const virtualItems = rowVirtualizer.getVirtualItems();
+	const totalSize = rowVirtualizer.getTotalSize();
+
+	// Reset scroll position to top whenever search results update
+	useEffect(() => {
+		if (scrollParentRef.current) {
+			scrollParentRef.current.scrollTop = 0;
+		}
+		rowVirtualizer.scrollToOffset(0);
+	}, [results]);
 
 	// Sync initial query when opened
 	useEffect(() => {
@@ -84,13 +124,20 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 				const lower = item.name.toLowerCase();
 				const isInst =
 					item.is_installed ||
-					installedPackages.some(
-						(p) =>
-							p.name.toLowerCase() === lower ||
-							p.name.split("/").pop()?.toLowerCase() === lower ||
-							lower.split("/").pop() === p.name.toLowerCase(),
-					) ||
-					services.some((s) => s.name.toLowerCase() === lower);
+					installedPackages.some((p) => {
+						const pLower = p.name.toLowerCase();
+						const typeMatches =
+							!p.packageType ||
+							!item.packageType ||
+							p.packageType === item.packageType;
+						if (!typeMatches) return false;
+						return (
+							pLower === lower ||
+							pLower.split("/").pop() === lower ||
+							(lower === "docker-desktop" && (pLower === "docker" || pLower === "docker-desktop"))
+						);
+					}) ||
+					(item.packageType !== "cask" && services.some((s) => s.name.toLowerCase() === lower));
 				return {
 					...item,
 					is_installed: isInst,
@@ -194,7 +241,12 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 				</form>
 
 				{/* Results Body */}
-				<div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 min-h-55">
+				<div
+					ref={scrollParentRef}
+					role="region"
+					aria-label="Global search results list"
+					className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 min-h-55"
+				>
 					{error && (
 						<div className="flex items-center gap-2.5 bg-rose-50 border border-rose-200 text-rose-600 px-4 py-3 rounded-2xl text-xs font-medium">
 							<AlertCircle size={16} className="shrink-0" />
@@ -249,62 +301,92 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 						</div>
 					)}
 
-					{results.map((pkg) => {
-						const isInstalling = !!runningActions[pkg.name];
-						return (
-							<div
-								key={pkg.name}
-								className="flex items-center justify-between p-3.5 rounded-2xl border border-brand-border hover:border-brand-primary/40 hover:bg-[#F9FAFD] transition-all"
-							>
-								<div className="flex flex-col min-w-0 pr-3">
-									<div className="flex items-center gap-2">
-										<span className="font-bold text-sm text-brand-text">
-											{pkg.name}
-										</span>
-										{pkg.version && (
-											<span className="text-[11px] font-mono text-brand-muted bg-slate-100 px-2 py-0.5 rounded-md">
-												{pkg.version}
-											</span>
-										)}
-										{pkg.is_installed && (
-											<span className="text-[10px] font-bold text-brand-success bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-100">
-												<CheckCircle size={10} /> Installed
-											</span>
-										)}
-									</div>
-									{pkg.description && (
-										<p className="text-xs text-brand-muted mt-1 line-clamp-1">
-											{pkg.description}
-										</p>
-									)}
-								</div>
-
-								{pkg.is_installed ? (
-									<span className="bg-slate-100 text-slate-500 font-medium text-xs px-3.5 py-1.5 rounded-xl inline-flex items-center gap-1.5 cursor-default select-none border border-slate-200/60 shrink-0">
-										<CheckCircle size={12} className="text-emerald-500" />
-										Installed
-									</span>
-								) : (
-									<Button
-										type="button"
-										onClick={() => onInstall(pkg.name)}
-										disabled={isInstalling}
-										isLoading={isInstalling}
-										loadingText="Installing..."
-										spinner={<Loader2 size={13} className="animate-spin text-white" />}
-										icon={<Download size={13} />}
-										className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-all cursor-pointer ${
-											isInstalling
-												? "bg-brand-primary/60 text-white cursor-wait"
-												: "bg-brand-primary hover:bg-brand-primary-hover text-white shadow-xs"
-										}`}
+					{results.length > 0 && (
+						<div className="relative w-full" style={{ height: `${totalSize}px` }}>
+							{virtualItems.map((virtualRow) => {
+								const pkg = results[virtualRow.index];
+								if (!pkg) return null;
+								const isInstalling = !!runningActions[pkg.name];
+								const isCask = pkg.packageType === "cask";
+								return (
+									<div
+										key={virtualRow.key}
+										data-index={virtualRow.index}
+										ref={rowVirtualizer.measureElement}
+										className="absolute top-0 left-0 w-full"
+										style={{
+											transform: `translateY(${virtualRow.start}px)`,
+										}}
 									>
-										Install
-									</Button>
-								)}
-							</div>
-						);
-					})}
+										<div className="flex items-center justify-between p-3.5 rounded-2xl border border-brand-border hover:border-brand-primary/40 hover:bg-[#F9FAFD] transition-all">
+											<div className="flex flex-col min-w-0 pr-3">
+												<div className="flex items-center gap-2 flex-wrap">
+													<div
+														className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${
+															isCask
+																? "bg-purple-50 text-purple-600"
+																: "bg-blue-50 text-blue-600"
+														}`}
+													>
+														{isCask ? <AppWindow size={13} /> : <Package size={13} />}
+													</div>
+
+													<span className="font-bold text-sm text-brand-text">
+														{pkg.name}
+													</span>
+
+													<span
+														className={`px-2 py-0.5 text-[9px] font-bold rounded-full uppercase tracking-wider ${
+															isCask
+																? "bg-purple-100 text-purple-700 border border-purple-200"
+																: "bg-blue-100 text-blue-700 border border-blue-200"
+														}`}
+													>
+														{isCask ? "Cask" : "Formula"}
+													</span>
+
+													{pkg.version && (
+														<span className="text-[11px] font-mono text-brand-muted bg-slate-100 px-2 py-0.5 rounded-md">
+															{pkg.version}
+														</span>
+													)}
+												</div>
+												{pkg.description && (
+													<p className="text-xs text-brand-muted mt-1.5 line-clamp-1">
+														{pkg.description}
+													</p>
+												)}
+											</div>
+
+											{pkg.is_installed ? (
+												<span className="bg-slate-100 text-slate-500 font-medium text-xs px-3.5 py-1.5 rounded-xl inline-flex items-center gap-1.5 cursor-default select-none border border-slate-200/60 shrink-0">
+													<CheckCircle size={12} className="text-emerald-500" />
+													Installed
+												</span>
+											) : (
+												<Button
+													type="button"
+													onClick={() => onInstall(pkg.name, isCask)}
+													disabled={isInstalling}
+													isLoading={isInstalling}
+													loadingText="Installing..."
+													spinner={<Loader2 size={13} className="animate-spin text-white" />}
+													icon={<Download size={13} />}
+													className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-all cursor-pointer ${
+														isInstalling
+															? "bg-brand-primary/60 text-white cursor-wait"
+															: "bg-brand-primary hover:bg-brand-primary-hover text-white shadow-xs"
+													}`}
+												>
+													Install
+												</Button>
+											)}
+										</div>
+									</div>
+								);
+							})}
+						</div>
+					)}
 				</div>
 
 				{/* Footer info */}
